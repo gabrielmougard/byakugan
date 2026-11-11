@@ -1,0 +1,3 @@
+(executable
+ (name lexgen)
+ (libraries contextual serve))

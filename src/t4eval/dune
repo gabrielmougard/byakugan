@@ -1,0 +1,3 @@
+(executable
+ (name t4eval)
+ (libraries contextual serve))

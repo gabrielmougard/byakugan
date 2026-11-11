@@ -1,0 +1,19 @@
+(test
+ (name test_contextual)
+ (modules test_contextual)
+ (deps url_key.tsv)
+ (libraries contextual yojson ocaml-protoc-plugin))
+
+(test
+ (name test_m2v)
+ (modules test_m2v)
+ (deps m2v_potion-base-32M.tsv m2v_potion-multilingual-128M.tsv)
+ (libraries contextual))
+
+(test
+ (name test_siglip)
+ (modules test_siglip)
+ (deps
+  siglip_fixtures.tsv
+  (glob_files images/*))
+ (libraries contextual))

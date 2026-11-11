@@ -1,0 +1,135 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 400" width="1280" height="400" role="img" aria-labelledby="t d">
+  <title id="t">Byakugan</title>
+  <desc id="d">Byakugan: see what the reader sees. Cookieless contextual advertising, from the page down to the ad slot.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0B1222"/>
+      <stop offset="1" stop-color="#22345A"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#6F8FE0" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#6F8FE0" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="iris" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#DDE3F7"/>
+    </radialGradient>
+    <clipPath id="eye">
+      <path d="M30 128 Q128 30 226 128 Q128 226 30 128 Z"/>
+    </clipPath>
+    <pattern id="dots" width="28" height="28" patternUnits="userSpaceOnUse">
+      <circle cx="2" cy="2" r="1.3" fill="#FFFFFF" opacity="0.07"/>
+    </pattern>
+  </defs>
+
+  <rect width="1280" height="400" rx="28" fill="url(#bg)"/>
+  <rect width="1280" height="400" rx="28" fill="url(#dots)"/>
+
+  <!-- the eye: byakugan-mark.svg without its tile -->
+  <g transform="translate(60 -6) scale(1.6)">
+<defs>
+    <linearGradient id="m-tile" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0D1222"/>
+      <stop offset="1" stop-color="#2A2F52"/>
+    </linearGradient>
+    <radialGradient id="m-glow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#B8B0F0" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#B8B0F0" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="m-iris" cx="0.45" cy="0.42" r="0.6">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="0.7" stop-color="#E6E2F6"/>
+      <stop offset="1" stop-color="#C9C2E8"/>
+    </radialGradient>
+    <linearGradient id="m-sclera" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#D9D6EA"/>
+      <stop offset="0.35" stop-color="#F6F5FC"/>
+      <stop offset="1" stop-color="#FFFFFF"/>
+    </linearGradient>
+    <clipPath id="m-eye">
+      <path d="M38 140 C72 96 150 80 220 112 C176 166 104 178 46 146 Z"/>
+    </clipPath>
+    <!-- veins hug the eye and taper away from it: thick roots, thin tips -->
+    <g id="m-roots" fill="none" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M218 104 C226 94 226 84 232 76"/>
+      <path d="M224 116 C234 112 238 106 244 102"/>
+      <path d="M220 126 C230 132 232 140 238 148"/>
+      <path d="M206 140 C212 150 210 158 214 168"/>
+      <path d="M196 94 C200 84 196 76 200 66"/>
+      <path d="M42 132 C34 126 32 118 26 110"/>
+      <path d="M40 144 C32 150 28 158 22 164"/>
+      <path d="M56 118 C50 108 54 100 50 90"/>
+      <path d="M62 156 C58 166 62 176 56 186"/>
+    </g>
+    <g id="m-veins" fill="none" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M218 104 C226 94 226 84 232 76 C238 68 236 58 242 48"/>
+      <path d="M232 76 C240 76 246 70 250 62"/>
+      <path d="M224 116 C234 112 238 106 244 102 C248 100 250 94 252 88"/>
+      <path d="M220 126 C230 132 232 140 238 148 C244 156 244 166 250 174"/>
+      <path d="M238 148 C246 146 250 140 252 132"/>
+      <path d="M206 140 C212 150 210 158 214 168 C218 178 214 188 220 198"/>
+      <path d="M196 94 C200 84 196 76 200 66 C204 58 200 50 204 40"/>
+      <path d="M42 132 C34 126 32 118 26 110 C20 104 20 94 14 88"/>
+      <path d="M26 110 C18 112 12 108 6 112"/>
+      <path d="M40 144 C32 150 28 158 22 164 C16 170 16 180 10 186"/>
+      <path d="M56 118 C50 108 54 100 50 90 C46 82 50 74 46 64"/>
+      <path d="M62 156 C58 166 62 176 56 186 C52 194 56 204 50 212"/>
+    </g>
+  </defs>
+
+  
+  <circle cx="130" cy="128" r="112" fill="url(#m-glow)"/>
+
+  <!-- veins: shadow, body, highlight, so they read as raised -->
+  <g stroke="#070A14" opacity="0.85"><use href="#m-veins" stroke-width="7"/><use href="#m-roots" stroke-width="11"/></g>
+  <g stroke="#9189C9"><use href="#m-veins" stroke-width="4"/><use href="#m-roots" stroke-width="7.5"/></g>
+  <g stroke="#E0DBF7" opacity="0.85" transform="translate(-1 -1)"><use href="#m-veins" stroke-width="1.2"/><use href="#m-roots" stroke-width="2"/></g>
+
+  <!-- under-eye line -->
+  <path d="M84 172 C106 182 132 182 156 176" fill="none" stroke="#9189C9" stroke-width="2.4" stroke-linecap="round" opacity="0.6"/>
+
+  <!-- the eye -->
+  <path d="M38 140 C72 96 150 80 220 112 C176 166 104 178 46 146 Z" fill="url(#m-sclera)"/>
+  <g clip-path="url(#m-eye)">
+    <circle cx="132" cy="128" r="42" fill="url(#m-iris)"/>
+    <g fill="none" stroke="#B7AFDA">
+      <circle cx="132" cy="128" r="42" stroke-width="2.4"/>
+      <circle cx="132" cy="128" r="31" stroke-width="1.4" opacity="0.7"/>
+      <circle cx="132" cy="128" r="21" stroke-width="1.2" opacity="0.55"/>
+    </g>
+    <!-- faint pupil: an ad slot -->
+    <rect x="122" y="121" width="20" height="13" rx="3" fill="#CFC8EC" stroke="#A79ED2" stroke-width="1.4" opacity="0.8"/>
+    <!-- lid shadow across the top of the eye -->
+    <path d="M38 140 C72 96 150 80 220 112 L220 98 L38 98 Z" fill="#6C66A0" opacity="0.28"/>
+  </g>
+  <circle cx="150" cy="111" r="5" fill="#FFFFFF" opacity="0.95"/>
+
+  <!-- lids: heavy upper lash line with an outer flick, thin lower lid -->
+  <path d="M34 144 C70 94 150 76 222 110 L234 104" fill="none" stroke="#05070E" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M38 140 C72 96 150 80 220 112" fill="none" stroke="#05070E" stroke-width="7" stroke-linecap="round"/>
+  <path d="M50 148 C104 176 170 166 214 120" fill="none" stroke="#2B2950" stroke-width="3" stroke-linecap="round"/>
+  <!-- brow crease -->
+  <path d="M60 104 C100 76 160 68 214 88" fill="none" stroke="#05070E" stroke-width="3" stroke-linecap="round" opacity="0.6"/>
+  </g>
+
+  <!-- wordmark -->
+  <g font-family="Inter, 'SF Pro Display', 'Segoe UI', Helvetica, Arial, sans-serif">
+    <text x="500" y="178" font-size="104" font-weight="800" fill="#F5F7FF" letter-spacing="-2">Byakugan</text>
+    <text x="504" y="236" font-size="38" font-weight="500" fill="#B9C8EE">See what the reader sees.</text>
+    <text x="504" y="300" font-size="22" font-weight="400" fill="#8394BC">Cookieless contextual advertising, from the page down to the ad slot.</text>
+  </g>
+
+  <!-- the five tiers, cheapest first -->
+  <g font-family="'SF Mono', Menlo, Consolas, monospace" font-size="15" font-weight="600">
+    <rect x="504" y="326" width="112" height="30" rx="15" fill="#8C8C8C" opacity="0.22"/>
+    <rect x="628" y="326" width="112" height="30" rx="15" fill="#2E86AB" opacity="0.28"/>
+    <rect x="752" y="326" width="112" height="30" rx="15" fill="#3BA55C" opacity="0.28"/>
+    <rect x="876" y="326" width="112" height="30" rx="15" fill="#E2A33B" opacity="0.28"/>
+    <rect x="1000" y="326" width="112" height="30" rx="15" fill="#C0392B" opacity="0.32"/>
+    <text x="560" y="346" text-anchor="middle" fill="#C9C9C9">T0 URL</text>
+    <text x="684" y="346" text-anchor="middle" fill="#8CCBE6">T1 lexicon</text>
+    <text x="808" y="346" text-anchor="middle" fill="#8FDCA6">T2 dense</text>
+    <text x="932" y="346" text-anchor="middle" fill="#F2CB85">T3 media</text>
+    <text x="1056" y="346" text-anchor="middle" fill="#F19A90">T4 LLM</text>
+  </g>
+</svg>

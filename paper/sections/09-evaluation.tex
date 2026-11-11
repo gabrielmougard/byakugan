@@ -1,0 +1,166 @@
+% 09-evaluation
+\section{Evaluation}\label{sec:eval}
+
+We evaluate three things. How good are the labels, at each depth and against what they cost? Which language model should run \tier{4}? And would context change what buyers do, measured offline on an exchange's request logs? Throughput and freshness on real hardware are in \cref{sec:impl-pi,sec:crawl-refresh}.
+
+\subsection{The golden set}\label{sec:eval-golden}
+
+\paragraph{Pages.} We drew the golden sample from 25 of the busiest publishers on the exchange over one week, 20 pages each, drawn without replacement with probability proportional to impressions, so busy pages are more likely to appear. The draw hashes each URL, so it can be repeated, and the sampled URLs, without query strings, are in the repository with the gold labels. Of the 469 pages, 383 could be crawled and stored; the other 86 answered with HTTP 403 or were disallowed by robots.txt. Four of the 25 publishers gave us nothing at all: some publishers refuse unknown crawlers. The stored pages follow the exchange's supply, not the web's: 112 are in Italian, 76 in French, 27 in German, 164 in English and 4 in other languages. Homepages are a large share of it, since they carry many impressions.
+
+\paragraph{Labels.} The pages were crawled at \preset{deep}, with \tier{4} on, and then judged. We did not have readers of every language at hand, so an LLM did the judging, in two passes, and every judgement stays open to correction in the lab. In the first pass, a model (DeepSeek V4.1 Flash) saw exactly what a human judge sees in the lab: the top 12 labels of every level with their scores and evidence, and the full taxonomy to add what every level missed. It cost \$0.30 for 383 pages. In the second pass the same model re-judged the Italian and French pages while reading their text, up to 4,000 characters, which cost \$0.26. The two passes agree at \hF{} 0.798, and 124 of 188 pages came out identical. We adopted the second pass for the 176 article pages and kept the first for the 12 homepages, where reading every teaser added up to 70 labels a page. Ancestors are removed from each judgement, since the metric adds them back. The gold has 1,173 labels, 3.1 a page.
+
+This is the weakest part of the evaluation, and we say so plainly. An LLM's labels are not ground truth, and \tier{4} is itself an LLM, so its scores below partly measure agreement between two models. A human check of 50 pages is the next step (\cref{sec:discussion}).
+
+\paragraph{Metric.} Labels form a hierarchy, and a page judged Soccer that we label Sports is half right, not wrong. We use hierarchical precision and recall \citep{kiritchenko2006learning}: both the predicted set $\hat{Y}_d$ (labels served, score $\ge 0.5$) and the gold set $Y_d$ are closed under ancestors, then compared, micro-averaged over pages:
+\begin{equation}\label{eq:eval-hprf}
+  \hP = \frac{\sum_d |\operatorname{cl}(\hat{Y}_d) \cap \operatorname{cl}(Y_d)|}{\sum_d |\operatorname{cl}(\hat{Y}_d)|},
+  \qquad
+  \hR = \frac{\sum_d |\operatorname{cl}(\hat{Y}_d) \cap \operatorname{cl}(Y_d)|}{\sum_d |\operatorname{cl}(Y_d)|},
+  \qquad
+  \hF = \frac{2\,\hP\,\hR}{\hP + \hR}.
+\end{equation}
+
+\subsection{Label quality against depth}\label{sec:eval-quality}
+
+\Cref{fig:eval-quality} and \cref{tab:eval-quality} compare what the levels served at crawl time, with the hand-set calibration, with what they serve now. The hand-set \tier{2} was badly overconfident: \preset{standard} served labels at a precision of 0.097, so nine served labels in ten were wrong, and recall was high only because almost everything was served. Calibration alone, before any change of threshold, raises \preset{standard}'s precision to 0.448 and its \hF{} from 0.171 to 0.373. \preset{rich} without \tier{4} gains the same way.
+
+\begin{table}[t]
+\centering\small
+\caption{Served labels against the golden set. ``Stored'' is what the profiles served at crawl time, with the hand-set calibration and \tier{4} at \preset{deep}. ``Today'' reruns \tier{0}--\tier{3} offline on the same pages with the fitted calibration. The last row is \preset{rich} with the per-language tunings, where pages that do not settle take \tier{4}'s answer.}
+\label{tab:eval-quality}
+\begin{tabular}{@{}llccccc@{}}
+\toprule
+Level & Configuration & \hP & \hR & \hF & settled & \tier{4} \\
+\midrule
+\preset{zero\_fetch} & stored & 1.000 & 0.015 & 0.030 & 0\% & -- \\
+\preset{standard} & stored, hand-set & 0.097 & 0.726 & 0.171 & 2.1\% & -- \\
+\preset{standard} & today, \tier{0}--\tier{2} & 0.448 & 0.320 & 0.373 & 70.2\% & -- \\
+\preset{rich} & stored, hand-set & 0.153 & 0.773 & 0.255 & 60.6\% & -- \\
+\preset{rich} & today, \tier{0}--\tier{3} & 0.448 & 0.321 & 0.374 & 70.2\% & -- \\
+\preset{deep} & stored, with \tier{4} & 0.548 & 0.639 & 0.590 & 0\% & 100\% \\
+\preset{rich} & tuned, \tier{4} where unsettled & 0.577 & 0.442 & \textbf{0.501} & 70.2\% & 29.8\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+  ybar, width=\linewidth, height=6.2cm,
+  ymin=0, ymax=1.05, ylabel={score},
+  symbolic x coords={sh,st,rh,rt,dp,rf},
+  xtick=data,
+  xticklabels={
+    {\preset{standard}\\hand-set},
+    {\preset{standard}\\calibrated},
+    {\preset{rich}\\hand-set},
+    {\preset{rich}\\calibrated},
+    {\preset{deep}\\stored, \tier{4}},
+    {\preset{rich} tuned\\\tier{4} on 29.8\%}},
+  xticklabel style={align=center, font=\footnotesize},
+  bar width=7pt, enlarge x limits=0.1,
+  axis line style={ink!60}, tick style={ink!60}, ymajorgrids, grid style={ink!12},
+  ticklabel style={font=\footnotesize}, label style={font=\small},
+  legend style={at={(0.5,1.02)},anchor=south,legend columns=3,font=\footnotesize,draw=none,
+    /tikz/every even column/.append style={column sep=10pt}},
+]
+\addplot[fill=accent!55, draw=accent] coordinates {(sh,0.097) (st,0.448) (rh,0.153) (rt,0.448) (dp,0.548) (rf,0.577)};
+\addplot[fill=tthree!60, draw=tthree!90!black] coordinates {(sh,0.726) (st,0.320) (rh,0.773) (rt,0.321) (dp,0.639) (rf,0.442)};
+\addplot[fill=ttwo!65, draw=ttwo!90!black] coordinates {(sh,0.171) (st,0.373) (rh,0.255) (rt,0.374) (dp,0.590) (rf,0.501)};
+\legend{\hP, \hR, \hF}
+\end{axis}
+\end{tikzpicture}
+\caption{Precision, recall and \hF{} of the served labels (\cref{tab:eval-quality}). Calibration trades the hand-set map's empty recall for real precision. \tier{4} on three pages in ten closes most of the gap to running it on every page.}
+\label{fig:eval-quality}
+\end{figure}
+
+\tier{4} is what makes the labels good. With it on every page, \preset{deep} reaches \hF{} 0.590 on the stored profiles. The tuned \preset{rich} level of \cref{sec:cascade-tunings} gets 0.501 while sending only 29.8\% of pages to \tier{4}, and its precision, 0.577, is the highest of any level. The remaining loss is recall: a page that settles on its cheap labels never gets the labels \tier{4} would have added. The most frequent false positives at \preset{standard} before calibration were broad and generic: Genres, wrongly served on 136 of the 383 pages, Men's Fashion on 92 and Video Game Genres on 89. Per language, the tuned level scores 0.489 on English pages, 0.496 on Italian, 0.520 on French and 0.575 on the rest (\cref{tab:cascade-tunings}).
+
+\subsection{Which model runs \tier{4}}\label{sec:eval-t4}
+
+The cost ceiling for \tier{4} is about \$0.20 per 1,000 calls: at three pages in ten, that keeps the whole cascade within tens of dollars per million pages. A first benchmark compared 13 models on 36 pages against two frontier models used as references; it was within noise. We reran six candidates on the golden set, on the 342 judged pages whose publishers allow it, each page's real \preset{deep} prompt rebuilt with today's calibration. Each model's answers were fed back into the \preset{deep} level, and what that level served was scored against the gold. This run used the first-pass gold. \Cref{fig:eval-t4} gives the result, and \cref{tab:eval-t4} the details. The run cost \$0.52.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+  width=0.8\linewidth, height=6cm,
+  xmode=log, xmin=0.025, xmax=0.8, ymin=0.60, ymax=0.715,
+  xtick={0.03,0.1,0.3}, xticklabels={0.03,0.1,0.3},
+  yticklabel style={/pgf/number format/fixed,/pgf/number format/precision=2},
+  xlabel={billed \$ per 1,000 calls (log scale)}, ylabel={\preset{deep} \hF{} against gold},
+  grid=major, grid style={ink!12}, axis line style={ink!60}, tick style={ink!60},
+  ticklabel style={font=\footnotesize}, label style={font=\small},
+]
+\addplot[tfour!60, densely dotted, line width=0.9pt] coordinates {(0.2,0.60) (0.2,0.715)};
+\node[font=\scriptsize, text=tfour!80!black, anchor=south west] at (axis cs:0.205,0.601) {cost ceiling};
+\addplot[only marks, mark=*, mark size=2.8pt, tfour] coordinates {(0.142,0.699)};
+\addplot[only marks, mark=*, mark size=2.3pt, accent] coordinates {(0.129,0.679) (0.253,0.671) (0.456,0.670) (0.503,0.622) (0.037,0.620)};
+\node[font=\scriptsize, anchor=south east, text=tfour!85!black] at (axis cs:0.138,0.701) {GLM 5.3 Flash (default)};
+\node[font=\scriptsize, anchor=north east] at (axis cs:0.125,0.677) {GPT-6 Luna};
+\node[font=\scriptsize, anchor=south] at (axis cs:0.253,0.673) {Claude Haiku 5.5};
+\node[font=\scriptsize, anchor=north] at (axis cs:0.456,0.668) {Gemini 3.1 Flash-Lite};
+\node[font=\scriptsize, anchor=south] at (axis cs:0.503,0.624) {GPT-5 mini};
+\node[font=\scriptsize, anchor=south] at (axis cs:0.037,0.622) {Qwen 3.7 Flash};
+\end{axis}
+\end{tikzpicture}
+\caption{Six candidate models for \tier{4}, scored by what the \preset{deep} level serves with their answers on 342 golden pages. Without \tier{4}, the same level scores 0.145; every model lifts it to between 0.62 and 0.70. The default is both the best and under the cost ceiling.}
+\label{fig:eval-t4}
+\end{figure}
+
+\begin{table}[t]
+\centering\small
+\caption{\tier{4} candidates on the golden set. \emph{ok}: parseable answers. \emph{kept}: labels kept per page. \emph{verified}: quotes found verbatim on the page. \tier{4} \hF: the labels the model keeps, alone. \preset{deep}: what the level serves with its answers.}
+\label{tab:eval-t4}
+\begin{tabular}{@{}lrrrrrrr@{}}
+\toprule
+Model & \$/1k calls & ok & kept & verified & \tier{4} \hF & \preset{deep} \hP & \preset{deep} \hF \\
+\midrule
+GLM 5.3 Flash & 0.142 & 334/342 & 2.2 & 94\% & \textbf{0.706} & \textbf{0.845} & \textbf{0.699} \\
+GPT-6 Luna & 0.129 & 332/342 & 2.1 & 98\% & 0.682 & 0.832 & 0.679 \\
+Claude Haiku 5.5 & 0.253 & 331/342 & 2.3 & 95\% & 0.676 & 0.810 & 0.671 \\
+Gemini 3.1 Flash-Lite & 0.456 & 337/342 & 2.6 & 100\% & 0.671 & 0.747 & 0.670 \\
+GPT-5 mini & 0.503 & 336/342 & 3.2 & 89\% & 0.645 & 0.657 & 0.622 \\
+Qwen 3.7 Flash & 0.037 & 333/342 & 2.0 & 92\% & 0.638 & 0.801 & 0.620 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Three findings matter beyond the choice. First, the gap between models is small next to the gap between having \tier{4} and not: the cheapest model is a quarter of the default's price and loses 0.08 of \hF. Second, quote verification is not free of failure even for strong models: GPT-5 mini's quotes are found on the page 89\% of the time, and halving the confidence of the others is part of why its precision is lowest. Third, prices on the catalogue are not prices on the bill. Routing only to providers that keep no prompts, the default model costs \$0.142 per 1,000 calls, against about \$0.05 at its listed price.
+
+\subsection{What a page costs}\label{sec:eval-cost}
+
+\Cref{tab:eval-cost} gives the cost of the tuned \preset{rich} level per million pages, from \cref{eq:cascade-cost}. \tier{4} dominates the money. Lowering its share from 49.1\% (one threshold pair everywhere) to 29.8\% (per language) saves about \$28 per million pages for 0.043 of \hF. Images cost CPU rather than money: on the three-board cluster, the two-phase rule of \cref{alg:cascade-phases} and the value budget cut the share of new pages that fetch images to 20\%, from every page before. Fetching is not in the table. At one second per site between requests and about 100\,ms a fetch, it is time and bandwidth more than money.
+
+\begin{table}[t]
+\centering\small
+\caption{Cost per million pages at the tuned \preset{rich} level, with the default \tier{4} model at its billed price.}
+\label{tab:eval-cost}
+\begin{tabular}{@{}lrrl@{}}
+\toprule
+Item & Pages & \$ per million & Note \\
+\midrule
+\tier{0}--\tier{2} & 100\% & 6 & the cascade's estimate; CPU in practice \\
+\tier{3} images & 20\% & CPU only & pages that fetch images; up to 3 each \\
+\tier{4}, tuned per language & 29.8\% & 42 & \$0.142 per 1,000 calls \\
+\tier{4}, one pair everywhere & 49.1\% & 70 & for comparison \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Would context change what buyers do?}\label{sec:eval-reach}
+
+The case for contextual deals is not that context finds more pages. It is that buyers bid more where the page fits what they buy. We measured this offline, on one day of an exchange's request logs, without changing anything in production. The setting is the curated deal: a buyer's deal takes requests from a list of placements, and we ask what would happen if a request whose page matches the deal's context counted too.
+
+\paragraph{Method.} Each deal's context is inferred from its own pages: the categories that are the main topic of at least a quarter of the pages where it already passes every filter. For each deal we then look at requests its placement list alone rejected, inside the countries where it buys, and count those whose page carries the deal's context and no Sensitive Topics label. Filter reasons are logged for a sample of requests, and counts are scaled up accordingly. The pages were sampled from rejected requests and from requests each deal already received, and crawled with \tier{4} and images off. We ran this before and after the golden-set calibration.
+
+\paragraph{Supply is not what holds deals back.} The deals with a placement list already bid on only a small fraction of the requests they are eligible for. The bottleneck is demand, so a contextual extension is worth what it changes in how often buyers bid, not merely how many requests it adds.
+
+\paragraph{Buyers bid more on matching pages.} On requests a deal already receives, we compare the buyer's bid rate on pages that match the deal's context with its rate on pages that do not. With the hand-set calibration, buyers bid 1.8 times as often on matching pages, about four standard errors apart. After calibration the lift holds: 1.9 times with main-topic contexts, and 2.0 times with the categories the bidder's rule would actually check.
+
+\paragraph{How much context adds.} With the hand-set calibration, a deal's context spanned so many tier-one categories under the bidder's rule that it matched nearly everything; that was an artefact of the overconfident \tier{2}. After calibration contexts are narrow, and they add a modest number of (deal, request) pairs with main-topic contexts and several times more with the rule's categories. Deals have budgets, though, and an added request is worth something only to a deal that is behind its pace. Most deals in flight were, and capping each deal's added impressions by how far behind it is and by what it has left to deliver, under-delivering deals could absorb a substantial part of what context adds. These are lower bounds: the reach pages were crawled without \tier{4}, and calibrated cheap tiers leave many pages without a main topic. A week of logs, and \tier{4} on, would firm them up.
+
+\subsection{Coverage in practice}\label{sec:eval-coverage}
+
+On the three-board cluster, with 3,236 stored profiles, the share of a day's impressions that fell on pages with a profile was already far larger than the share of pages those profiles cover. Coverage follows the crawl budget and the order of the frontier, since the busiest pages carry most impressions. That the crawl request on a miss reaches busy new pages within their first hour, as \cref{sec:crawl-which} says it must, is still to be measured in production.

@@ -1,0 +1,132 @@
+% a2-slot
+\section{Slot context on the wire}\label{app:slot}
+
+The page module writes one JSON object per ad unit into
+\code{ortb2Imp.ext.data.ctx}. This example is the one in the module's README;
+its two hashes are those of the first two fixture texts of
+\cref{tab:slot-fixtures}:
+\begin{lstlisting}
+"ortb2Imp": {"ext": {"data": {"ctx": {"v": 1, "vh": 844,
+  "b": [["28b95a9f8d39808e", -0.42], ["0f0127458431a25e", 0.31]]}}}}
+\end{lstlisting}
+\code{v} is the format's version, 1. \code{vh} is the viewport height in CSS
+pixels, rounded. \code{b} lists up to $k$ blocks, nearest first, each as its
+SimHash in 16 hexadecimal digits and its offset in viewports, rounded to two
+decimals: from the slot's top to the block's middle, negative above. With the
+defaults $k = 12$ and a reach of 3 viewports, each entry takes at most 26
+characters, and the whole object stays under 350 bytes. The module is configured
+in Prebid.js's real-time data block, for instance with an auction delay of
+20\,ms, and any error leaves that ad unit without \code{ctx} rather than
+holding the auction back.
+
+\begin{algorithm}[ht]
+\caption{The page module, for one ad unit (\code{slotContext} in \code{sdks/prebid}).}
+\label{alg:slot-module}
+\begin{algorithmic}[1]
+\Require ad unit $a$; $k = 12$; reach $R = 3$
+\State $id \gets$ the part of $a$'s GPID after its last \code{\#}, else $a$'s code
+\State $e \gets$ the element with id $id$; \Return nothing if absent or the viewport height $H$ is 0
+\State $y \gets$ top of $e$ in page coordinates
+\ForAll{elements $x$ matching \code{h1, h2, h3, p, li, blockquote, figcaption}}
+  \State \textbf{skip} $x$ if it lies inside $e$, is not rendered, or its own text has fewer than 20 characters
+  \State $d_x \gets (m_x - y) / H$, with $m_x$ the middle of $x$; keep $x$ if $|d_x| \le R$
+\EndFor
+\State sort the kept blocks by $|d_x|$ and take the first $k$
+\State \Return $\{$\code{v}: 1, \code{vh}: $H$, \code{b}: $[(\operatorname{simhash}(\text{own text of } x),\ \operatorname{round}_2(d_x)), \dots]\}$
+\end{algorithmic}
+\end{algorithm}
+
+A block's own text leaves out nested blocks, scripts and styles, so text inside
+a nested block counts only for that block, as in the crawler's extractor.
+Runs of whitespace are squashed to single spaces before the 20-character test.
+
+\subsection{The hash}\label{app:slot-hash}
+
+Both sides hash the same words. The tokeniser is BERT's basic normaliser,
+written in C for the crawler and in JavaScript for the module. It drops control
+and format characters, turns any whitespace into a space and makes each CJK
+ideograph a word of its own. It lowercases, decomposes each character
+(Unicode NFD) and drops the combining marks, which strips accents. Unicode
+punctuation, and every printable ASCII character that is not a letter or a
+digit, separates words and is dropped. Other symbols stay, so \code{\textsterling 2.5bn}
+gives the words \code{\textsterling 2} and \code{5bn}.
+
+Each word $w$ is hashed with 64-bit FNV-1a over its UTF-8 bytes
+$c_1 \dots c_m$:
+\begin{equation}\label{eq:slot-fnv}
+h_0 = \mathtt{0xcbf29ce484222325},\qquad
+h_j = (h_{j-1} \oplus c_j)\cdot \mathtt{0x100000001b3} \bmod 2^{64},\qquad
+h(w) = h_m.
+\end{equation}
+Every occurrence of a word then votes on every bit
+\citep{charikar2002similarity}. With $W$ the block's words in order, repeats
+included, and $h_i(w)$ bit $i$ of $h(w)$,
+\begin{equation}\label{eq:slot-simhash}
+V_i = \sum_{w \in W} \bigl(2\,h_i(w) - 1\bigr),\qquad
+\operatorname{simhash}_i = [\,V_i > 0\,],\qquad i = 0, \dots, 63,
+\end{equation}
+so a tie sets the bit to 0. Only the words count: case, accents, punctuation
+and word order do not. \code{The derby ends 2-1.}\ and \code{the DERBY ends 2 1}
+both hash to \code{a767ac4cc601b1dd}. The crawler uses the same hash, over a
+page's main text, to decide whether a page changed between fetches
+(\cref{sec:crawl}). The module's output is pinned to the crawler's by 25 texts
+that the OCaml side writes, in five languages, with typographic punctuation,
+accents, digits, CJK, symbols and emoji (\cref{tab:slot-fixtures}).
+
+\begin{table}[ht]
+\centering
+\caption{Three of the 25 fixture texts, their words as both tokenisers see
+  them, and their SimHash (\code{sdks/prebid/test/simhash.tsv}).}
+\label{tab:slot-fixtures}
+\footnotesize
+\begin{tabularx}{\linewidth}{@{}>{\raggedright\arraybackslash}X >{\raggedright\arraybackslash}X l@{}}
+\toprule
+Text & Words & SimHash\\
+\midrule
+Marcus Thuram prima di Feyenoord-Inter: \guillemotleft Abbiamo sbagliato, ora dobbiamo vincere\guillemotright &
+  \code{marcus thuram prima di feyenoord inter abbiamo sbagliato ora dobbiamo vincere} & \code{28b95a9f8d39808e}\\
+L'ÉCONOMIE française résiste : la Banque de France relève sa prévision de croissance à 1,2 \% &
+  \code{l economie francaise resiste la banque de france releve sa prevision de croissance a 1 2} & \code{0f0127458431a25e}\\
+Breaking: Prime Minister announces \textsterling 2.5bn package for the NHS after winter crisis &
+  \code{breaking prime minister announces \textsterling 2 5bn package for the nhs after winter crisis} & \code{67d1711824c96098}\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Matching at the bidder}\label{app:slot-match}
+
+Let the request name blocks $(g_j, d_j)$ and let the served profile hold
+blocks $b_1, \dots, b_n$ in document order, with hashes $h_{b_i}$. Each request
+block is matched on its own to the nearest profile block in Hamming distance,
+\begin{equation}\label{eq:slot-match}
+i^\ast(j) = \min\Bigl(\operatorname*{arg\,min}_{i}\ \operatorname{popcount}(g_j \oplus h_{b_i})\Bigr),
+\qquad \text{accepted when } \operatorname{popcount}(g_j \oplus h_{b_{i^\ast}}) \le 3,
+\end{equation}
+where the outer minimum breaks ties in favour of the earlier block. An
+accepted match lends the request block its \code{main} flag and labels; its
+offset stays $d_j$, as the browser measured it. A request block with no match
+within 3 bits counts as main content with no labels, so it dilutes the
+neighbourhood in \cref{eq:boundary-relevance} and can never make the slot
+safer (\cref{prop:boundary-monotone}). Nothing stops two request blocks from
+matching the same profile block. That is harmless: identical texts have
+identical hashes, and a block's labels depend only on its text and the page's
+language, so any copy carries the same labels.
+
+The threshold of 3 bits is the one the crawler uses for change detection,
+after \citet{manku2007detecting}. For two independent, uniform 64-bit hashes
+the chance of a match by accident is
+\begin{equation}\label{eq:slot-false}
+2^{-64} \sum_{k=0}^{3} \binom{64}{k} = \frac{43{,}745}{2^{64}} < 3 \times 10^{-15},
+\end{equation}
+so a request with 12 blocks against a profile with 64 is very unlikely to
+pair unrelated texts. The real risk runs the other way. A block edited after
+the crawl may move more than 3 bits, and a short paragraph can do so with one
+changed word. Such a block then counts as unknown. We have not measured how
+often that happens on live pages.
+
+Without \code{ctx}, \code{Profile.SlotOfGPID} builds the same list from the
+profile: it takes the container named by the GPID, computes each labelled
+block's offset from the container's estimated top, keeps those within 3
+viewports and returns the 12 nearest, sorted by distance with ties kept in
+document order. The Go function and the OCaml \code{Profile.gpid\_slot} agree
+on 1,000 fixture cases.

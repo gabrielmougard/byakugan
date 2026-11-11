@@ -1,0 +1,3 @@
+(executable
+ (name metacov)
+ (libraries contextual serve))

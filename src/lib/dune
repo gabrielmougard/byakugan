@@ -1,0 +1,4 @@
+(library
+ (name contextual)
+ (libraries re yojson unix digestif.c ptime protos robotstxt_native zstd_native lexbor_native m2v_native
+  warc_native))

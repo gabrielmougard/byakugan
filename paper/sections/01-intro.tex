@@ -1,0 +1,30 @@
+% 01-intro
+\section{Introduction}\label{sec:intro}
+
+An ad bought on context is bought on what the reader is looking at. With third-party cookies fading and user-level signals under ever tighter consent rules, more and more of programmatic buying falls back on the page: a cookware brand wants recipe pages, an airline wants travel pages, and almost every brand wants to stay away from a report of a stabbing. The idea is old \citep{ribeironeto2005impedance,broder2007semantic}. What has changed is the setting. A bidder now has to answer the question inside each bid, in a few milliseconds, for pages it may never have seen, against a fixed taxonomy of 704 categories \citep{iabtechlab2024content}, and with an explanation a trader can read.
+
+Three properties of real traffic make this hard.
+\begin{itemize}
+\item \emph{The stream is huge and skewed.} A bidder sees millions of distinct pages a day, but a small head of busy pages carries most of the requests. A flat spend per page either wastes money on pages almost no one sees or starves the ones that carry the traffic.
+\item \emph{Much of it is new.} A large share of each day's requests lands on pages that had none the week before. A busy new page builds its traffic over hours, not minutes, and most of it arrives within its first day. A profile ready the next morning has missed most of the page's value.
+\item \emph{A page is not one context.} A slot on a long article sits next to some paragraphs and far from others. On a phone it may share the screen with a ``most read'' list whose headline is the only sensitive thing on the page. A profile of the whole page, averaged, hides both.
+\end{itemize}
+
+Large language models label pages well \citep{gilardi2023chatgpt}, and cascades that call them only when cheaper models are unsure cut the cost \citep{chen2024frugalgpt}. But at millions of pages a day even a cheap model on every page is a real line in the budget, and its labels must still arrive within the hour, be traceable to the page, and say something about the slot rather than only the page.
+
+\paragraph{This paper.} We describe \sys{}, a contextual system built for that setting and fed by the traffic of a live exchange. Its offline half crawls the pages the bidder sees, busiest first, and labels each with a cascade of five tiers, from the URL alone to a small language model, that spends on a page in proportion to what the page is worth. Its online half is a library the bidder calls inside the bid. It reads the page's profile, backs off to the page's section and site when the page is unknown, and, where a page module reports what surrounds the slot, computes the slot's own context. In our deployment the offline half runs on three Raspberry Pi boards.
+
+\paragraph{Contributions.}
+\begin{enumerate}[leftmargin=1.8em,itemsep=2pt]
+\item \emph{A budgeted cascade} (\cref{sec:cascade}). Each tier is paid for only while the page is in doubt; a page's budget follows its traffic; and each label keeps the tier, the zone of the page and the quote that produced it. The scores are calibrated per tier, and the thresholds that decide when to call the language model are fitted per language. On a golden set of 383 pages in four main languages, the tuned configuration reaches a hierarchical F1 of 0.501 while calling the model on 29.8\% of pages, about \$42 per million pages, against 0.544 at 49.1\% with one threshold pair for every language.
+\item \emph{Slot-level context boundaries} (\cref{sec:boundary}). We separate relevance from suitability. Relevance blends the page with the blocks near the slot through a kernel whose reach depends on the ad format. Suitability takes the worst case over everything on screen with the ad, so a sensitive headline is never averaged away. A browser module puts fingerprints of the blocks around each slot into the bid request, and the bidder's library matches them against the stored profile in 1.8\,\textmu s.
+\item \emph{A crawl that follows value} (\cref{sec:crawl}). A frontier ordered by traffic, a crawl request on every miss so that busy new pages can be profiled within their first hour, change detection by SimHash, and a gate that reads the publisher's stated preferences for AI use before any text reaches a model.
+\item \emph{An evaluation with costs} (\cref{sec:eval}). Quality per configuration and per language, the cost of each in dollars, a comparison of 13 language models as the last tier, and evidence from bid logs that buyers bid about twice as often on pages that match their deal's context.
+\item \emph{A pre-registered experiment} (\cref{sec:protocol}). A design, with outcomes, guardrails and sample sizes, to test page context against slot context per ad format, written before any data exists.
+\end{enumerate}
+
+The code of every component, the golden set's URLs and labels, the benchmarks and this paper's sources are at \repo.
+
+We are explicit about what is not shown. The golden labels were judged by a language model, not by people, and the last tier of the cascade is itself a language model. The bid-rate evidence is observational and says that buyers value the match, not that ads perform better on it. The slot model's weights are priors set by hand, and the experiment that would fit them has not run. \Cref{sec:discussion} goes through these one by one.
+
+\paragraph{Outline.} \Cref{sec:related} places \sys{} among prior work. \Cref{sec:overview} states six requirements and gives the architecture. \Cref{sec:crawl,sec:cascade,sec:boundary,sec:serving} cover crawling, the cascade, slot context and serving. \Cref{sec:impl} covers the implementation, \cref{sec:eval} the evaluation and \cref{sec:protocol} the experiment. \Cref{sec:discussion} discusses limitations and ethics, and \cref{sec:conclusion} concludes. The appendices give the profile's wire format and the slot context on the wire.

@@ -1,0 +1,406 @@
+% 05-cascade
+\section{The budgeted cascade}\label{sec:cascade}
+
+A page profile is a set of labels from the \iab, each with a score and the evidence behind it. The labels come from five tiers. They run in order of cost, and each is paid for only while the page is still in doubt. This section gives the tiers, the rule that combines their outputs, the rule that stops the cascade, the budget that caps it, and how the scores were calibrated on the golden set of \cref{sec:eval}.
+
+\subsection{Problem}\label{sec:cascade-problem}
+
+Let $V$ be the 704 nodes of the taxonomy and $d$ a page. We want a set of scored labels
+\begin{equation}\label{eq:cascade-profile}
+  \mathcal{P}(d) = \{(v, s(v), E(v)) : v \in V,\ s(v) > \rho\},
+\end{equation}
+where $s(v) \in [0,1]$ should read as the probability that the page is about $v$, $\rho$ is a floor below which a label is not kept, and $E(v)$ is a list of evidence records: the tier that produced the score, the zone of the page it read, a verbatim quote and a reason. Two things make the problem harder than plain multi-label classification. Each page has a budget $B(d)$ in dollars, set by what the page is worth (\cref{sec:cascade-budget}). And the profile must be closed under ancestors, so that a page about Soccer is also about Sports: whenever $v$ is kept, every $u \in \operatorname{anc}(v)$ is kept with at least the same score.
+
+\subsection{Five tiers}\label{sec:cascade-tiers}
+
+\Cref{tab:cascade-tiers} lists the tiers. \tier{0} reads only what is known before any fetch: the words of the URL path and hints from sitemaps and the bid request. \tier{1} matches a lexicon of weighted terms per category against each zone of the extracted page. \tier{2} embeds the page and its first 40 text units with a static Model2Vec model \citep{tulkens2024model2vec} and compares them with one prototype per category. \tier{3} reads what text cannot: titles of embedded video, and images without usable alt text, which SigLIP~2 \citep{tschannen2025siglip} scores against every category zero-shot. \tier{4} is a small language model that reranks a shortlist.
+
+\begin{table}[t]
+\centering\small
+\caption{The tiers, in the order they run. Costs are the cascade's own estimates in dollars per page, used against the budget; \tier{4}'s is the billed price of the default model. \emph{Mode} says how a tier's score meets an earlier one (\cref{eq:cascade-accumulate,eq:cascade-override}).}
+\label{tab:cascade-tiers}
+\begin{tabularx}{\linewidth}{@{}l>{\raggedright\arraybackslash}Xr l@{}}
+\toprule
+Tier & Reads & Cost & Mode \\
+\midrule
+\textcolor{tzero}{\textbf{\tier{0}}} URL and hints & URL path words, sitemap and request hints; no fetch & \$0 & accumulate \\
+\textcolor{tone}{\textbf{\tier{1}}} lexicon & weighted terms in title, headings, body, metadata, JSON-LD & \$\num{1e-6} & accumulate \\
+\textcolor{ttwo}{\textbf{\tier{2}}} dense & page and sentence embeddings against 704 prototypes & \$\num{5e-6} & override \\
+\textcolor{tthree}{\textbf{\tier{3}}} media & video titles through the lexicon; up to 3 images through SigLIP~2 & \$\num{1e-4} per item & accumulate \\
+\textcolor{tfour}{\textbf{\tier{4}}} LLM & a condensed page and a shortlist of 12 labels; must quote the page & \$\num{1.4e-4} per call & override \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+The lexicon scores a category by its accumulated term weight. If $w_z$ is the weight of zone $z$ and $w_\tau$ that of a term $\tau$ listed for $v$, the raw weight on page $d$ and the \tier{1} score are
+\begin{equation}\label{eq:cascade-lexicon}
+  r(v \mid d) = \sum_{z} \sum_{\tau \in z \cap \mathrm{terms}(v)} w_z\, w_\tau,
+  \qquad
+  s_1(v \mid d) = 1 - e^{-r(v\mid d)/k_\ell},
+\end{equation}
+where $k_\ell$ is a saturation that depends on the page's language $\ell$. A single mention in the body stays weak; a hit in the title and the section is already strong. Terms are gated by language: a term only fires on a page in its language, or on a page that declares none.
+
+\tier{2} turns cosine similarity into a probability with a logistic map, Platt scaling, fitted per model and per language (\cref{sec:cascade-calibration}):
+\begin{equation}\label{eq:cascade-dense}
+  s_2(v \mid d) = \sigma\bigl(a_\ell\, \cos(\mathbf{e}_d, \mathbf{p}_{v,\ell}) + b_\ell\bigr),
+  \qquad \sigma(x) = \frac{1}{1+e^{-x}},
+\end{equation}
+where $\mathbf{e}_d$ is the page embedding and $\mathbf{p}_{v,\ell}$ the prototype of $v$ in language $\ell$: the category's path plus that language's lexicon terms, embedded once. English pages use the English model; every other language uses the multilingual one, against prototypes written in that language.
+
+\tier{4} never sees all 704 labels. Asked to pick among that many, a language model does poorly \citep{kamen2025order}. It sees the 12 labels the cheaper tiers scored highest, with their paths, and a condensed page (URL, title, description, section, keywords and the first 15 sentences), never the HTML. It must quote the page for every label it keeps. \Cref{sec:cascade-t4} gives the contract.
+
+\subsection{How scores combine}\label{sec:cascade-combine}
+
+The cascade keeps one running label set $L$ with scores $s(v)$. A tier returns fresh scores $f(v)$. Two modes combine them. A tier that brings independent evidence, another zone or another modality, \emph{accumulates} by noisy-OR. A tier whose model is better calibrated than what came before \emph{overrides}:
+\begin{align}
+  \text{accumulate:}\quad & s(v) \leftarrow 1 - \bigl(1-s(v)\bigr)\bigl(1-f(v)\bigr), \label{eq:cascade-accumulate}\\
+  \text{override:}\quad & s(v) \leftarrow f(v). \label{eq:cascade-override}
+\end{align}
+Either way, a label already at or above the accept threshold $\alpha$ is frozen: a cheaper tier decided it, and a later one may not take it back. A label new to $L$ enters with its fresh score. Evidence lists are concatenated, so a label carries the record of every tier that touched it. When the cascade stops, labels at or below the reject threshold $\rho$ are dropped and every kept label's ancestors are added:
+\begin{equation}\label{eq:cascade-finalize}
+  \operatorname{final}(L) = \operatorname{cl}\bigl(\{v \in L : s(v) > \rho\}\bigr),
+\end{equation}
+an ancestor taking the best score among its kept descendants unless a tier scored it higher itself. \Cref{tab:cascade-toy} follows three labels through a page.
+
+\begin{table}[t]
+\centering\small
+\caption{Three labels through a cascade with $\alpha = 0.8$ and $\rho = 0.3$. Soccer freezes at \tier{1} and \tier{2} cannot lower it. \tier{2} overrides Fan Conventions down, which \tier{1} had raised from a misleading phrase. Food \& Drink stays doubtful after \tier{2}, which keeps the page unsettled and pays for \tier{3}.}
+\label{tab:cascade-toy}
+\begin{tabular}{@{}lccccc@{}}
+\toprule
+Label & \tier{0} & \tier{1} (acc.) & \tier{2} (over.) & \tier{3} (acc.) & kept \\
+\midrule
+Sports $>$ Soccer & 0.40 & 0.40, 0.70 $\to$ \textbf{0.82} & \textbf{0.82} (frozen) & \textbf{0.82} & yes \\
+Events $>$ Fan Conventions & -- & 0.35 & 0.12 & 0.12 & no \\
+Food \& Drink & -- & 0.22 & 0.46 & 0.46, 0.30 $\to$ 0.62 & yes \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{When to stop}\label{sec:cascade-stop}
+
+Every remaining doubt is what the next, more expensive tier is paid for. A page with no doubt left is settled.
+
+\begin{definition}[Settled]\label{def:cascade-settled}
+Under a policy $\pi = (B, \alpha, \rho)$ with $0 \le \rho < \alpha$, a label set $L$ is \emph{settled} when some label is accepted and none is doubtful:
+\begin{equation}\label{eq:cascade-settled}
+  \operatorname{settled}_\pi(L) \iff \bigl(\exists v \in L : s(v) \ge \alpha\bigr) \wedge \bigl(\nexists v \in L : \rho < s(v) < \alpha\bigr).
+\end{equation}
+\end{definition}
+
+A settled page has at least one confident label and no label that a better tier could still move across either threshold. A page where every label sits below $\rho$ is not settled: nothing has been found, and the next tier may find something. \Cref{alg:cascade-run} is the whole loop. It is short on purpose. Before each tier it asks four questions in a fixed order, and the first that applies decides.
+
+\begin{algorithm}[t]
+\caption{The cascade for one page and one policy $\pi = (B, \alpha, \rho)$. Tiers come in cost order.}
+\label{alg:cascade-run}
+\begin{algorithmic}[1]
+\Function{Cascade}{$d$, $\pi$, tiers $t_0, \dots, t_n$}
+  \State $L \gets \emptyset$; \quad $c \gets 0$ \Comment{labels, money spent}
+  \For{$i = 0, \dots, n$}
+    \If{$\operatorname{settled}_\pi(L)$} \Return $(\operatorname{final}(L), c, \textsc{settled})$ \EndIf
+    \If{$t_i$ does not apply to $d$} \textbf{continue} \Comment{no text units, no media: free}\EndIf
+    \If{$c + \operatorname{cost}_{t_i}(d) > B$} \Return $(\operatorname{final}(L), c, \textsc{out of budget})$ \EndIf
+    \State $L \gets \operatorname{update}_\alpha\bigl(L, t_i(d, L)\bigr)$ \Comment{\cref{eq:cascade-accumulate,eq:cascade-override}, frozen at $\alpha$}
+    \State $c \gets c + \operatorname{cost}_{t_i}(d)$
+  \EndFor
+  \State \Return $(\operatorname{final}(L), c, \textsc{no more tiers})$
+\EndFunction
+\end{algorithmic}
+\end{algorithm}
+
+A tier receives the labels so far, $t_i(d, L)$. Only \tier{4} uses them, to build its shortlist. A tier that would exceed the budget ends the run; no later tier is tried, since later tiers cost more.
+
+Four policies, the presets, cover the uses we have (\cref{tab:cascade-presets}). Every crawled page is run under the first three, each giving its own level of the profile, so the same page can be compared at every depth. \preset{deep} never settles, because $\alpha > 1$: every affordable tier re-checks every label. It is the audit level, and it runs only when asked.
+
+\begin{table}[t]
+\centering\small
+\caption{Presets. $\alpha$ and $\rho$ are defaults; all but \preset{deep}'s are replaced per language (\cref{tab:cascade-tunings}). \preset{rich}'s budget is a ceiling: a page gets what it earns (\cref{eq:cascade-budget}).}
+\label{tab:cascade-presets}
+\begin{tabular}{@{}lrccl@{}}
+\toprule
+Preset & Budget $B$ & $\alpha$ & $\rho$ & Use \\
+\midrule
+\preset{zero\_fetch} & \$0 & 0.80 & 0.30 & before the page is fetched: URL and hints only \\
+\preset{standard} & \$\num{1e-5} & 0.80 & 0.30 & text tiers \tier{0}--\tier{2} \\
+\preset{rich} & up to \$\num{5e-4} & 0.80 & 0.30 & what the bidder reads: adds \tier{3}, and \tier{4} if earned \\
+\preset{deep} & \$\num{1e-2} & 1.01 & 0.30 & audits and the golden set: nothing freezes \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{A budget that follows value}\label{sec:cascade-budget}
+
+The same spend on every page wastes money on the long tail and starves the head (\ref{req:cost}). The crawler knows how many bid requests a page receives a day, $q(d)$, from the request logs and from the claim that hands it the page. With an assumed share $\eta$ of requests that become impressions and an assumed eCPM $m$ in dollars, the page earns about $\eta\, q(d)\, m / 1000$ dollars a day. The cascade may spend a fraction $\phi$ of what it earns over $D$ days, clamped between \preset{standard}'s budget and \preset{rich}'s:
+\begin{equation}\label{eq:cascade-budget}
+  B(d) = \min\Bigl(B_{\mathrm{rich}},\ \max\Bigl(B_{\mathrm{std}},\ \phi \, D\, \eta\, q(d)\, \frac{m}{1000}\Bigr)\Bigr).
+\end{equation}
+The code uses $\phi = 0.01$ and $D = 7$ days; $\eta$ and $m$ are set by the operator from its own win rate and prices. \tier{4} needs the text tiers' \num{6e-6} plus its own \num{1.4e-4}, about \num{1.5e-4}, so it becomes affordable once $\phi D \eta\, q(d)\, m/1000$ passes that, which for plausible rates means a handful of bid requests a day. A page with one or two requests a day stays at \preset{standard}'s budget and never fetches an image.
+
+\subsection{Thresholds per language}\label{sec:cascade-tunings}
+
+A single pair $(\alpha, \rho) = (0.8, 0.3)$ does not hold across languages. On the golden set, before \tier{4}, no Italian, French or German label reached 0.8 at \preset{deep}, so every such page would go to \tier{4}; on English pages the same cut kept 70.6\% precision. The thresholds and the \tier{1} saturation are therefore fitted per language, together, as one small constrained problem. Let $\theta_\ell = (k_\ell, \alpha_\ell, \rho_\ell)$ for each language $\ell$ with enough judged pages, and one shared $\theta$ for the rest. A page that settles at \preset{rich} serves its \tier{0}--\tier{3} labels; a page that does not is one \tier{4} sees. With $\mathcal{D}_\ell$ the judged pages in $\ell$ and $u_\theta(d) = 1$ when $d$ does not settle,
+\begin{equation}\label{eq:cascade-fit}
+  \max_{\{\theta_\ell\}}\ \hF\bigl(\{\theta_\ell\}\bigr)
+  \quad\text{subject to}\quad
+  \frac{1}{|\mathcal{D}|}\sum_\ell \sum_{d \in \mathcal{D}_\ell} u_{\theta_\ell}(d) \le 0.30,
+\end{equation}
+where \hF{} is the hierarchical F$_1$ of what the \preset{rich} level would serve over all judged pages, taking \tier{4}'s output from the stored \preset{deep} level for the pages it sees. The bound is the share of pages the cost model budgets for \tier{4}. Each $\theta_\ell$ ranges over a grid of 140 choices (saturation, accept, reject), and the share of \tier{4} calls is allocated across languages to the best overall \hF. \Cref{tab:cascade-tunings} gives the result.
+
+\begin{table}[t]
+\centering\small
+\caption{Per-language tunings, fitted by \cref{eq:cascade-fit}. ``Others'' includes German (27 judged pages) and the rare languages. With one pair everywhere, $(4, 0.8, 0.3)$, \preset{rich} reaches \hF{} 0.544 but sends 49.1\% of pages to \tier{4}; the fit gives 0.501 at 29.8\%, cutting \tier{4}'s cost per million pages from about \$70 to \$42.}
+\label{tab:cascade-tunings}
+\begin{tabular}{@{}lrccccccr@{}}
+\toprule
+Language & Pages & $k_\ell$ & $\alpha_\ell$ & $\rho_\ell$ & \hP & \hR & \hF & \tier{4} share \\
+\midrule
+English & 164 & 8 & 0.5 & 0.4 & 0.545 & 0.443 & 0.489 & 22.6\% \\
+Italian & 112 & 2 & 0.8 & 0.4 & 0.583 & 0.431 & 0.496 & 42.0\% \\
+French & 76 & 12 & 0.5 & 0.4 & 0.690 & 0.417 & 0.520 & 26.3\% \\
+Others & 31 & 12 & 0.7 & 0.4 & 0.607 & 0.546 & 0.575 & 32.3\% \\
+\midrule
+All & 383 & & & & 0.577 & 0.442 & 0.501 & 29.8\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Italian keeps the highest accept and still sends 42\% of its pages to \tier{4}: its \tier{0}--\tier{3} labels gain least from wider thresholds, so the allocation spends \tier{4} there. Two caveats hold for every number in this table. The fit has 140 choices per language for 31 to 164 pages, so it can overfit. And \tier{4}'s outcome comes from an older crawl, on older shortlists. We refit both when the golden set is recrawled in audit mode.
+
+\subsection{Calibration}\label{sec:cascade-calibration}
+
+Thresholds only mean something if scores are calibrated. A score of 0.7 should be right about 70\% of the time. We measure this with the expected calibration error over $M = 10$ equal bins \citep{guo2017calibration},
+\begin{equation}\label{eq:cascade-ece}
+  \mathrm{ECE} = \sum_{m=1}^{M} \frac{|B_m|}{n}\, \bigl|\operatorname{acc}(B_m) - \operatorname{conf}(B_m)\bigr|,
+\end{equation}
+over the $n$ labels a tier hands the cascade (score $\ge 0.3$), where $\operatorname{acc}$ is the share of labels in bin $B_m$ that are right, ancestors included, and $\operatorname{conf}$ their mean score.
+
+\paragraph{Platt scaling.} For a raw signal $x$ (a cosine, a logit) and a label $y \in \{0,1\}$, Platt's method fits $p(y = 1 \mid x) = \sigma(ax+b)$ by maximum likelihood \citep{platt1999probabilistic}. On $n_+$ positives and $n_-$ negatives we use Platt's smoothed targets, $t_+ = (n_+ + 1)/(n_+ + 2)$ and $t_- = 1/(n_- + 2)$, so separable data keeps a finite slope, and minimise the cross-entropy
+\begin{equation}\label{eq:cascade-platt}
+  \ell(a, b) = -\sum_{i} \Bigl[t_i \log \sigma(a x_i + b) + (1 - t_i)\log\bigl(1 - \sigma(a x_i + b)\bigr)\Bigr]
+\end{equation}
+by Newton's method with step halving, as \citet{lin2007note} recommend for numerical safety. Every (page, category) pair of the golden set is one example: 704 per page, most of them negative.
+
+\paragraph{\tier{2}.} The hand-set map before the golden set was $\sigma(25x - 6)$ for every model. It was far too steep. On an Italian football page, page cosines from 0.43 to 0.68 for a dozen Sports children all mapped to 0.999, and the cascade handed on 46 labels at 0.3 or more per page. \Cref{fig:cascade-platt} shows the fitted curves. The English model keeps a steep slope; the multilingual model, whose cosines run lower and closer together, gets a gentler one for each language. With the old map, \preset{standard} served labels at precision 0.10; with the fitted ones, at 0.45.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+  width=0.9\linewidth, height=6.2cm,
+  xmin=0.15, xmax=0.95, ymin=0, ymax=1.02,
+  xlabel={page cosine $\cos(\mathbf{e}_d, \mathbf{p}_v)$}, ylabel={$s_2(v \mid d)$},
+  grid=major, grid style={ink!12},
+  axis line style={ink!60}, tick style={ink!60},
+  legend style={at={(0.5,-0.24)},anchor=north,font=\footnotesize,draw=ink!25,fill=white,legend columns=2,
+    /tikz/every even column/.append style={column sep=8pt}},
+  legend cell align=left, clip=false,
+  every axis plot/.append style={line width=1.1pt, samples=200, domain=0.15:0.95},
+  ticklabel style={font=\footnotesize}, label style={font=\small},
+]
+\addplot[ink!55, dashed] {1/(1+exp(-(25*x-6)))};
+\addlegendentry{hand-set, all models: $\sigma(25x-6)$}
+\addplot[ttwo!90!black] {1/(1+exp(-(15.74*x-6.83)))};
+\addlegendentry{English, potion-base-32M: $a=15.74$, $b=-6.83$}
+\addplot[accent] {1/(1+exp(-(10.63*x-6.89)))};
+\addlegendentry{French: $a=10.63$, $b=-6.89$}
+\addplot[tfour] {1/(1+exp(-(9.48*x-6.37)))};
+\addlegendentry{Italian: $a=9.48$, $b=-6.37$}
+\addplot[tthree!90!black] {1/(1+exp(-(9.88*x-6.68)))};
+\addlegendentry{others, multilingual: $a=9.88$, $b=-6.68$}
+\addplot[draw=none, fill=tfour, fill opacity=0.08, domain=0.43:0.68] {1.02} \closedcycle;
+\node[font=\scriptsize, text=tfour!80!black, anchor=south] at (axis cs:0.555,1.02) {one football page: its Sports children};
+\addplot[ink!40, densely dotted, line width=0.8pt, domain=0.15:0.95] {0.8};
+\node[font=\scriptsize, text=ink!70, anchor=south west] at (axis cs:0.16,0.8) {accept $\alpha = 0.8$};
+\end{axis}
+\end{tikzpicture}
+\caption{\tier{2}'s map from cosine to probability, before and after the golden set. The shaded band is where a dozen Sports children of one Italian football page fell: the hand-set map put all of them near 1, the fitted Italian map spreads them between about 0.1 and 0.5, so they stay doubtful and pay for a better tier.}
+\label{fig:cascade-platt}
+\end{figure}
+
+\paragraph{\tier{3}.} SigLIP~2's probabilities for a category are tiny, because it spreads mass over 704 captions. The hand-set map was $\sigma(1.74\,x + 5.21)$ on its logit $x$, which put 0.8 at a raw probability of 0.1. The fit is much flatter, $\sigma(0.41\,x - 0.30)$, and lowers the image tier's ECE from 0.401 to 0.080. A flat map moves the operating point, so the cut for keeping an image label had to move too. At the old cut of 0.3, the fitted map dropped a clear hit in our tests, an electric car at a charging point, at 0.248. At 0.15, the new cut, the same raw probability passes as before (about 0.03), and a beach football photo at 0.10 stays out.
+
+\paragraph{\tier{1}.} The lexicon is the worst-calibrated tier: ECE 0.414 with $k = 4$ everywhere. A single saturation fitted alone, $k = 23.4$, brings it to 0.085, but then no lexicon label ever reaches accept, \preset{rich} falls to \hF{} 0.209 and sends 89\% of pages to \tier{4}. Saturation moves with the thresholds, so it is fitted with them (\cref{eq:cascade-fit}), not alone.
+
+\paragraph{\tier{4}.} Temperature scaling, $s \mapsto \sigma(\operatorname{logit}(s)/T)$, fits $T = 1.73$ on the shortlist, but it does not lower ECE (0.081 at $T=1$, 0.101 after). We leave $T = 1$.
+
+\subsection{The language model as a checked reranker}\label{sec:cascade-t4}
+
+\tier{4} is the only tier whose reasons could be invented. A language model's stated rationale need not be why it answered \citep{turpin2023language}, so we do not keep rationales. We keep quotes, because a quote can be checked. \Cref{alg:cascade-t4} gives the contract. The shortlist is the 12 best labels so far. The model answers in JSON with, for each label it keeps, a confidence and a sentence copied from the page. A label whose quote is not found in the page's normalised text keeps half its confidence. An id outside the shortlist is ignored. A shortlisted label the model leaves out scores 0, and so does a label of $L$ that did not make the shortlist: \tier{4} overrides, so it is the final word on every label not already frozen.
+
+\begin{algorithm}[t]
+\caption{\tier{4}: rerank a shortlist and check every quote. $N(\cdot)$ is the text normaliser the lexicon uses.}
+\label{alg:cascade-t4}
+\begin{algorithmic}[1]
+\Function{Rerank}{$d$, $L$}
+  \State $C \gets$ the 12 labels of $L$ with the highest scores (the taxonomy's roots if $L = \emptyset$)
+  \State $A \gets \textsc{Model}(\text{instructions}, \{(v, \operatorname{path}(v)) : v \in C\}, \operatorname{condensed}(d))$ \Comment{JSON: id, confidence, quote}
+  \For{$v \in C$}
+    \If{$(v, \gamma, \kappa) \in A$}
+      \State $f(v) \gets \operatorname{clip}_{[0,1]}(\gamma)$ \textbf{if} $N(\kappa) \subseteq N(d)$ \textbf{else} $\operatorname{clip}_{[0,1]}(\gamma)/2$
+    \Else\ $f(v) \gets 0$ \Comment{not selected}
+    \EndIf
+  \EndFor
+  \For{$v \in L \setminus C$} $f(v) \gets 0$ \Comment{not in the shortlist} \EndFor
+  \State \Return $f$ \Comment{overrides; frozen labels keep their score}
+\EndFunction
+\end{algorithmic}
+\end{algorithm}
+
+Quote checking is cheap and catches the failure that matters. On the golden set the default model's quotes were found verbatim 94\% of the time (\cref{sec:eval-t4}). Publishers can refuse all of this. Page text goes to \tier{4} only when the page's AI-use preferences allow it (\cref{sec:crawl}); a refused page skips \tier{4} at every level.
+
+The shortlist caps what \tier{4} can recover: a gold label outside the 12 cannot come back. On the golden set the 12 best labels before \tier{4} hold 62.7\% of the gold labels. \Cref{fig:cascade-recall} shows what longer lists would hold. Even 96 labels hold 93.1\%, so the length is not the main problem. The cheaper tiers' ranking is.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+  width=0.82\linewidth, height=5.4cm,
+  xmode=log, log basis x=2,
+  xmin=10, xmax=110, ymin=0.55, ymax=1.0,
+  xtick={12,16,24,48,96}, xticklabels={12,16,24,48,96},
+  xlabel={shortlist length $k$}, ylabel={gold labels among the $k$ best},
+  grid=major, grid style={ink!12}, axis line style={ink!60}, tick style={ink!60},
+  ticklabel style={font=\footnotesize}, label style={font=\small},
+  yticklabel={\pgfmathparse{\tick*100}\pgfmathprintnumber[fixed,precision=0]{\pgfmathresult}\%},
+]
+\addplot[ttwo!85!black, line width=1.2pt, mark=*, mark size=1.8pt] coordinates {
+  (12,0.627) (16,0.697) (24,0.783) (48,0.876) (96,0.931)};
+\addplot[tfour, densely dashed, line width=0.9pt, domain=10:110] {0.95};
+\node[font=\scriptsize, text=tfour, anchor=south west] at (axis cs:10.4,0.95) {target, 95\%};
+\addplot[only marks, mark=diamond*, mark size=2.8pt, tfour] coordinates {(12,0.648)};
+\node[font=\scriptsize, text=tfour!85!black, anchor=west, align=left] at (axis cs:12.7,0.652) {the prompts' own shortlists, 64.8\%};
+\node[font=\scriptsize, text=ink!75, anchor=north] at (axis cs:12,0.619) {62.7};
+\node[font=\scriptsize, text=ink!75, anchor=south] at (axis cs:16,0.705) {69.7};
+\node[font=\scriptsize, text=ink!75, anchor=south] at (axis cs:24,0.791) {78.3};
+\node[font=\scriptsize, text=ink!75, anchor=south] at (axis cs:48,0.884) {87.6};
+\node[font=\scriptsize, text=ink!75, anchor=north] at (axis cs:96,0.923) {93.1};
+\end{axis}
+\end{tikzpicture}
+\caption{Recall of the shortlist: the share of the 1,173 gold labels among the $k$ labels \tier{0}--\tier{3} score highest, before \tier{4}, at \preset{deep}. The diamond is measured on the shortlists actually sent to the model. Recall grows slowly with $k$: the ranking, not the length, keeps \tier{4} from the 95\% target.}
+\label{fig:cascade-recall}
+\end{figure}
+
+\subsection{Phases, so the network never blocks a worker}\label{sec:cascade-phases}
+
+The cascade is a pure function of the page and the tiers. It runs on a pool of CPU workers, while sockets and timers live on a single event loop (\cref{sec:impl}). \tier{4} and the image tier need the network in the middle of that function. Rather than block a worker on a remote call, the crawler splits each page into phases (\cref{alg:cascade-phases}).
+
+\begin{algorithm}[t]
+\caption{One page's levels, with network work kept out of the CPU pool.}
+\label{alg:cascade-phases}
+\begin{algorithmic}[1]
+\State \textbf{pool:} run every level without images; note the levels still in doubt that could afford an image
+\If{some such level exists and the page has images without usable alt text}
+  \State \textbf{loop:} fetch up to 3 images politely; look each up in the embedding cache
+  \State \textbf{pool:} embed the ones not cached, store them in the cache
+\EndIf
+\State \textbf{pool:} dry run of every level with a \tier{4} that records its prompt and answers nothing
+\If{the page's AI-use gate allows it and some prompt was recorded}
+  \State \textbf{loop:} send the prompts, collect the answers and their billed cost
+\EndIf
+\State \textbf{pool:} run every level for real, with the images and the answers
+\end{algorithmic}
+\end{algorithm}
+
+The dry run sees exactly what the real run will send, because \tier{4} is the last tier: its prompt depends only on the tiers before it. If any call fails, \tier{4} is dropped for that page; an empty answer never zeroes the labels. Image embeddings are cached in the shared store by image URL and patch budget, 3.7\,KB each with overhead, kept 30 days, so an image that appears on many pages of a site is embedded once. On the three-board cluster of \cref{sec:impl}, with these phases and the value budget, 20\% of new pages fetched images, against every page before.
+
+\subsection{What a page costs}\label{sec:cascade-cost}
+
+Let $\pi_t$ be the share of pages that reach tier $t$ at \preset{rich} and $c_t$ its cost. The expected cost of a page is
+\begin{equation}\label{eq:cascade-cost}
+  \mathbb{E}[c] = \sum_{t=0}^{4} \pi_t\, c_t \approx \pi_4\, p_{\mathrm{call}} + \pi_3\, \bar{n}_{\mathrm{img}}\, c_{\mathrm{img}} + c_1 + c_2,
+\end{equation}
+where $p_{\mathrm{call}}$ is the price of one \tier{4} call and $\bar{n}_{\mathrm{img}}$ the mean number of images a page that reaches \tier{3} embeds. In money, \tier{4} dominates: with the default model billed at \$0.142 per 1,000 calls and $\pi_4 = 0.298$, it costs about \$42 per million pages. The text tiers cost \$6 per million pages in the cascade's own accounting, and images cost CPU rather than money. Billing runs about 2.7 times the catalogue price of the tokens sent, because only providers that keep no prompts are used, so the crawler's estimate of a call carries that factor.
+
+The thresholds set $\pi_4$. \Cref{fig:cascade-grid} shows the trade-off at \preset{rich} on the golden set without \tier{4} in the loop: raising accept or reject keeps more pages unsettled, so more go to \tier{4}, while the pages that do settle serve better labels.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+  width=0.86\linewidth, height=6cm,
+  xmin=30, xmax=85, ymin=0.36, ymax=0.42,
+  xlabel={pages \tier{4} would see at \preset{rich} (\%)},
+  ylabel={\hF{} of what settled pages serve},
+  grid=major, grid style={ink!12}, axis line style={ink!60}, tick style={ink!60},
+  ticklabel style={font=\footnotesize}, label style={font=\small},
+  yticklabel style={/pgf/number format/fixed,/pgf/number format/precision=2},
+  legend style={at={(0.02,0.98)},anchor=north west,font=\footnotesize,draw=ink!25,fill=white},
+  legend cell align=left,
+]
+\addplot[tthree!90!black, line width=1pt, mark=square*, mark size=1.8pt] coordinates {(66.8,0.370) (70.0,0.380) (74.9,0.375) (80.2,0.396)};
+\addlegendentry{reject $\rho = 0.1$}
+\addplot[accent, line width=1pt, mark=*, mark size=1.9pt] coordinates {(51.2,0.396) (56.1,0.405) (62.1,0.405) (70.5,0.410)};
+\addlegendentry{reject $\rho = 0.2$}
+\addplot[tfour, line width=1pt, mark=triangle*, mark size=2.3pt] coordinates {(35.0,0.401) (41.0,0.406) (48.8,0.410) (59.0,0.408)};
+\addlegendentry{reject $\rho = 0.3$}
+\node[font=\scriptsize, text=tfour!85!black, anchor=north] at (axis cs:35.0,0.399) {$\alpha$ 0.5};
+\node[font=\scriptsize, text=tfour!85!black, anchor=north] at (axis cs:59.0,0.406) {$\alpha$ 0.8};
+\node[font=\scriptsize, text=accent, anchor=south] at (axis cs:51.2,0.397) {$\alpha$ 0.5};
+\node[font=\scriptsize, text=accent, anchor=south] at (axis cs:70.5,0.411) {$\alpha$ 0.8};
+\node[font=\scriptsize, text=tthree!80!black, anchor=north] at (axis cs:66.8,0.369) {$\alpha$ 0.5};
+\node[font=\scriptsize, text=tthree!80!black, anchor=north west] at (axis cs:80.2,0.395) {$\alpha$ 0.8};
+\end{axis}
+\end{tikzpicture}
+\caption{Thresholds trade \tier{4} calls for the quality of what the cheap tiers decide alone. Each point is one $(\alpha, \rho)$ at \preset{rich}, accept rising from 0.5 to 0.8 along each line, with today's calibration and no \tier{4}. A higher reject sends fewer pages to \tier{4} at almost the same quality: at $\rho = 0.3$, 35\% of pages for \hF{} 0.401, against 51\% at $\rho = 0.2$. The per-language fit of \cref{tab:cascade-tunings} uses $\rho = 0.4$.}
+\label{fig:cascade-grid}
+\end{figure}
+
+\subsection{The flow, end to end}\label{sec:cascade-flow}
+
+\Cref{fig:cascade-flow} puts the pieces together for one page at \preset{rich}.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[x=1cm,y=1cm,font=\scriptsize]
+\tikzset{
+  cTier/.style={draw=#1!85!black, fill=#1!16, line width=0.8pt, rounded corners=2.5pt,
+    minimum width=2.0cm, minimum height=1.15cm, align=center, inner sep=2pt},
+  cGate/.style={draw=ink!70, fill=white, circle, minimum size=6.2mm, inner sep=0pt, font=\tiny\bfseries},
+  cStop/.style={draw=ink!50, fill=soft, rounded corners=2pt, minimum height=5.5mm, inner sep=2.5pt, font=\scriptsize, align=center},
+  cLine/.style={-{Stealth[length=1.6mm]}, semithick, draw=ink},
+  cThin/.style={-{Stealth[length=1.3mm]}, thin, draw=ink!55},
+}
+\node[cTier=tzero] (t0) at (0,0)    {\textbf{\tier{0}}\\URL, hints\\\$0};
+\node[cTier=tone]  (t1) at (2.85,0) {\textbf{\tier{1}}\\lexicon\\$k_\ell$, \$\num{1e-6}};
+\node[cTier=ttwo]  (t2) at (5.7,0) {\textbf{\tier{2}}\\embeddings\\$\sigma(a_\ell x + b_\ell)$};
+\node[cTier=tthree](t3) at (8.55,0) {\textbf{\tier{3}}\\video, images\\if in doubt};
+\node[cTier=tfour] (t4) at (11.4,0) {\textbf{\tier{4}}\\checked\\reranker};
+\foreach \a/\b/\g in {t0/t1/g1,t1/t2/g2,t2/t3/g3,t3/t4/g4} {
+  \node[cGate] (\g) at ($(\a.east)!0.5!(\b.west)$) {S\,B};
+  \draw[cLine] (\a.east) -- (\g.west);
+  \draw[cLine] (\g.east) -- (\b.west);
+}
+\node[cStop] (settled) at (2.85,2.0) {\textsc{settled}: serve $\operatorname{final}(L)$};
+\node[cStop] (budget)  at (8.55,2.0) {\textsc{out of budget}: serve $\operatorname{final}(L)$};
+\foreach \g in {g1,g2,g3,g4} {
+  \draw[cThin] (\g.north) -- ++(0,0.55) coordinate (\g top);
+}
+\draw[ink!55, thin] (g1top) -- (g4top);
+\draw[cThin] ($(g1top)!0.5!(g2top)$) -- (settled.south);
+\draw[cThin] ($(g3top)!0.5!(g4top)$) -- (budget.south);
+\node[note, anchor=south] at ($(g2top)!0.5!(g3top)$) {first true check decides};
+\node[cStop] (done) at (13.7,0) {\textsc{no more}\\\textsc{tiers}};
+\draw[cLine] (t4.east) -- (done.west);
+
+% score axis
+\begin{scope}[yshift=-2.3cm]
+\fill[ink!12] (0,0) rectangle (3.2,0.34);
+\fill[tthree!30] (3.2,0) rectangle (8.45,0.34);
+\fill[ttwo!35] (8.45,0) rectangle (11.4,0.34);
+\draw[ink!60] (0,0) rectangle (11.4,0.34);
+\foreach \x/\l in {0/0, 3.2/$\rho_\ell$, 8.45/$\alpha_\ell$, 11.4/1} {
+  \draw[ink!70] (\x,0) -- (\x,-0.12);
+  \node[anchor=north, font=\scriptsize] at (\x,-0.12) {\l};
+}
+\node[font=\scriptsize, align=center] at (1.6,0.17) {dropped at the end};
+\node[font=\scriptsize, align=center] at (5.825,0.17) {doubtful: keeps the cascade going};
+\node[font=\scriptsize, align=center] at (9.925,0.17) {frozen};
+\node[note, anchor=west, align=left] at (11.6,0.17) {where a label's\\score $s(v)$ sits};
+\end{scope}
+\node[note, anchor=north] at (5.7,-0.78) {S: settled? (\cref{eq:cascade-settled})\quad B: within budget $B(d)$? (\cref{eq:cascade-budget})\\accumulate at \tier{0}, \tier{1}, \tier{3}; override at \tier{2}, \tier{4}};
+\end{tikzpicture}
+\caption{The cascade for one page. Between tiers, two checks run in order: if the page is settled it stops and serves its labels; if the next tier would exceed the page's budget it stops too. \tier{3} runs only on a level still in doubt that can afford an image, and \tier{4} only when the publisher allows it. The bar below gives the meaning of a score against the language's thresholds.}
+\label{fig:cascade-flow}
+\end{figure}
+
+The design leaves out two things on purpose. There is no learned combiner: the accumulate, override and freeze rules are written by hand, and the evidence they keep is what a learned stacker would need later. And the thresholds carry no statistical guarantee. Conformal methods could bound the share of wrong labels a threshold lets through \citep{angelopoulos2024conformal,angelopoulos2021learn}; they need a golden set judged by people, which is the next step of \cref{sec:eval}.

@@ -1,0 +1,82 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: online
+  labels:
+    {{- include "contextual.labels" . | nindent 4 }}
+    app.kubernetes.io/name: online
+spec:
+  replicas: {{ .Values.online.replicas }}
+  selector:
+    matchLabels: { app.kubernetes.io/name: online }
+  template:
+    metadata:
+      labels:
+        {{- include "contextual.labels" . | nindent 8 }}
+        app.kubernetes.io/name: online
+    spec:
+      containers:
+        - name: online
+          image: {{ include "contextual.image" (dict "root" . "name" "online") }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - --port
+            - {{ .Values.online.port | quote }}
+            - --crawler
+            - http://crawler:{{ .Values.crawler.port }}
+            - --replicas
+            - http://{replica}.crawler-headless.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.crawler.port }}
+            - --valkey
+            - {{ include "contextual.valkey" . }}
+          env:
+            {{- include "contextual.valkeyEnv" . | nindent 12 }}
+          volumeMounts:
+            - { name: valkey-ca, mountPath: /etc/valkey-tls }
+          ports:
+            - { name: http, containerPort: {{ .Values.online.port }} }
+          readinessProbe:
+            httpGet: { path: /, port: http }
+          livenessProbe:
+            httpGet: { path: /, port: http }
+            periodSeconds: 20
+            timeoutSeconds: 5
+          securityContext:
+            {{- include "contextual.securityContext" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.online.resources | nindent 12 }}
+      volumes:
+        - {{- include "contextual.valkeyCA" . | nindent 10 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: online
+  labels:
+    {{- include "contextual.labels" . | nindent 4 }}
+    app.kubernetes.io/name: online
+spec:
+  selector: { app.kubernetes.io/name: online }
+  ports:
+    - { name: http, port: {{ .Values.online.port }}, targetPort: http }
+{{- if .Values.online.ingress.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: online
+  labels:
+    {{- include "contextual.labels" . | nindent 4 }}
+spec:
+  rules:
+    - {{- with .Values.online.ingress.host }}
+      host: {{ . | quote }}
+      {{- end }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: online
+                port: { name: http }
+{{- end }}

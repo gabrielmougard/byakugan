@@ -1,0 +1,109 @@
+% 10-protocol
+\section{An online experiment protocol}\label{sec:protocol}
+
+The offline results say that buyers bid more on pages that match a deal's context. They do not say that matching context makes ads work better, nor how far around a slot context reaches. Those questions need an experiment in the bidder. This section fixes its design before any data exists, so that the analysis cannot be tuned to the outcome.
+
+\subsection{Shadow mode first}\label{sec:protocol-shadow}
+
+The first step changes nothing. In the placements filter, where a deal rejects a request whose page is not on its list, the bidder also runs the context rule and counts, per deal, what context would have let through. Nothing is bid on those requests. The counts are the production version of the reach measurement of \cref{sec:eval-reach}, which scaled up the sample of requests whose filter reasons are logged. Only then does any arm change allocation.
+
+\subsection{Design}\label{sec:protocol-design}
+
+\paragraph{Unit and assignment.} The unit is the bid request, assigned by a hash of its id. No user identifier is needed, which keeps the experiment within requirement \ref{req:nouser}, and a request's arm is reproducible from its id. The test runs inside deals that opted in to ``placement list or context'' and on requests that carry the slot context of \cref{sec:boundary}, so that both treatments are possible on every unit.
+
+\paragraph{Arms.} Three arms, crossed with the format class of the slot (\cref{fig:protocol-design}):
+\begin{itemize}
+\item \emph{page}: the deal's rule checks the page's profile, as the system does today;
+\item \emph{slot}: the rule checks the slot's own context, the page and its nearby blocks blended by the format's kernel, with the co-visible blocks for suitability;
+\item \emph{control}, 5\% of requests: no context, the placement list only. It sets the baseline for both lifts.
+\end{itemize}
+The format classes are scroll-through, in-article and full-screen. They differ in how much the page around the slot can count (\cref{tab:boundary-formats}), so a lift in one says little about another.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[x=1cm,y=1cm,font=\footnotesize]
+\tikzset{
+  pbox/.style={box, fill=white, text width=#1, font=\footnotesize},
+  pbox/.default=2.4cm,
+  parm/.style={draw=#1!85!black, fill=#1!14, rounded corners=2pt, align=center, text width=2.9cm, inner sep=4pt, font=\footnotesize},
+  pcell/.style={draw=ink!35, fill=white, minimum width=1.5cm, minimum height=0.62cm, font=\scriptsize, text=ink!75, inner sep=1pt},
+  plink/.style={-{Stealth[length=1.6mm]}, semithick, draw=ink},
+}
+\node[pbox=2.9cm] (req) at (-0.15,0) {\textbf{bid request}\\in an opted-in deal,\\with slot context};
+\node[pbox=2.2cm] (hash) at (3.35,0) {\textbf{hash of the}\\\textbf{request id}};
+\draw[plink] (req) -- (hash);
+\node[parm=tzero] (ctl) at (7.0,1.55) {\textbf{control}, 5\%\\placement list only};
+\node[parm=accent] (pg) at (7.0,0) {\textbf{page}\\rule on the page profile};
+\node[parm=ttwo] (sl) at (7.0,-1.55) {\textbf{slot}\\rule on the slot's context};
+\foreach \a in {ctl,pg,sl} \draw[plink] (hash.east) -- (\a.west);
+\node[font=\scriptsize\itshape, text=ink!80, align=center, anchor=south] at (10.3,2.0) {scroll-\\through};
+\node[font=\scriptsize\itshape, text=ink!80, align=center, anchor=south] at (11.9,2.0) {in-\\article};
+\node[font=\scriptsize\itshape, text=ink!80, align=center, anchor=south] at (13.5,2.0) {full-\\screen};
+\foreach \r/\y/\t in {ctl/1.55/baseline, pg/0/lift, sl/-1.55/lift} {
+  \foreach \x in {10.3,11.9,13.5} { \node[pcell] at (\x,\y) {\t}; }
+  \draw[plink, draw=ink!60] (\r.east) -- (9.5,\y);
+}
+\node[note, anchor=north, text width=4.6cm] at (11.9,-2.05) {each cell: impressions and outcomes, by campaign and page};
+\node[note, anchor=north, text width=2.8cm] at (3.35,-0.75) {no user identifier: the arm follows from the request alone};
+\end{tikzpicture}
+\caption{The experiment. A request is assigned to an arm by a hash of its id, then analysed within the format class of its slot. The control keeps today's placement-list behaviour; the two treatments differ only in which context the deal's rule reads.}
+\label{fig:protocol-design}
+\end{figure}
+
+\paragraph{Outcomes.} The primary outcome depends on what a campaign buys, and is fixed before launch. Engagement campaigns are judged on engagement rate, creative interactions per impression. Awareness campaigns are judged on the share of impressions seen for three seconds and on dwell time, with brand-lift studies where a campaign runs one. Performance campaigns are judged on click-through and on post-click engaged sessions. Every campaign is also judged on suitability: Sensitive Topics incidents co-visible with the ad per 100,000 impressions, from an audit sample taken after the impression. That outcome also tests the co-visible rule of \cref{eq:boundary-suitability} on its own, since the page arm does not apply it.
+
+\paragraph{What we expect.} The literature does not predict one sign. Congruent magazine ads were remembered better \citep{moorman2002effects}, so for awareness campaigns we expect the slot arm to help. Incongruent placements were sometimes processed more \citep{dahlen2008could}, so for engagement the sign is open. We write both down now so that neither can be claimed afterwards as the hypothesis.
+
+\paragraph{Guardrails.} Context can starve a deal as easily as it can feed one. Per deal, we watch win rate, delivery pace and revenue per thousand requests against control, and an arm that pushes a deal off its pace is stopped for that deal.
+
+\subsection{How many impressions}\label{sec:protocol-power}
+
+Let $p_0$ be the baseline rate of the primary outcome and $\Delta$ the relative lift we want to detect, so $p_1 = p_0(1 + \Delta)$. For a two-sided test at level $0.05$ with power $0.8$, the impressions needed per arm are
+\begin{equation}\label{eq:protocol-n}
+  n = D \cdot \frac{(z_{0.975} + z_{0.8})^2\,\bigl[p_0(1-p_0) + p_1(1-p_1)\bigr]}{(p_1 - p_0)^2},
+  \qquad z_{0.975} + z_{0.8} \approx 1.96 + 0.84,
+\end{equation}
+where $D$ is the design effect. Impressions cluster by page and by creative, so outcomes within a cluster are correlated and an impression carries less than one impression's worth of information. We plan on $D = 2$. \Cref{fig:protocol-power} gives $n$ for three assumed baselines. The required sample grows as $1/\Delta^2$: a 5\% lift on a 0.2\% baseline needs 3.2 million impressions per arm before clustering, a 20\% lift on a 1\% baseline needs 40,000. The test's length follows from dividing $n$ by the daily impressions of the opted-in deals that carry slot context. Formats with a low baseline need longer, or a pooled in-article cell.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+  width=0.84\linewidth, height=6cm,
+  xmin=0.04, xmax=0.31, ymode=log, ymin=1e4, ymax=1e7,
+  xlabel={relative lift to detect, $\Delta$},
+  ylabel={impressions per arm, $D = 1$},
+  xtick={0.05,0.1,0.15,0.2,0.25,0.3},
+  xticklabel={\pgfmathparse{\tick*100}\pgfmathprintnumber[fixed,precision=0]{\pgfmathresult}\%},
+  grid=major, grid style={ink!12}, axis line style={ink!60}, tick style={ink!60},
+  ticklabel style={font=\footnotesize}, label style={font=\small},
+  legend style={at={(0.98,0.98)},anchor=north east,font=\footnotesize,draw=ink!25,fill=white},
+  legend cell align=left,
+  every axis plot/.append style={line width=1.15pt, samples=60, domain=0.04:0.31},
+]
+\addplot[tfour] {7.84*(0.002*(1-0.002) + 0.002*(1+x)*(1-0.002*(1+x)))/((0.002*x)^2)};
+\addlegendentry{baseline $p_0 = 0.2\%$}
+\addplot[tthree!90!black] {7.84*(0.005*(1-0.005) + 0.005*(1+x)*(1-0.005*(1+x)))/((0.005*x)^2)};
+\addlegendentry{$p_0 = 0.5\%$}
+\addplot[accent] {7.84*(0.01*(1-0.01) + 0.01*(1+x)*(1-0.01*(1+x)))/((0.01*x)^2)};
+\addlegendentry{$p_0 = 1\%$}
+\addplot[only marks, mark=*, mark size=1.6pt, ink] coordinates {(0.05,3.21e6) (0.1,0.82e6) (0.2,0.22e6) (0.05,1.28e6) (0.1,0.33e6) (0.2,0.09e6) (0.05,0.64e6) (0.1,0.16e6) (0.2,0.04e6)};
+\end{axis}
+\end{tikzpicture}
+\caption{Impressions per arm from \cref{eq:protocol-n} before clustering, for three assumed baselines. Dots mark the planning values at 5, 10 and 20\% lift; double them for a design effect of 2. Small lifts on rare outcomes are expensive: halving the lift quadruples the sample.}
+\label{fig:protocol-power}
+\end{figure}
+
+\paragraph{Analysis.} The primary analysis is a logistic regression of the outcome on the arm, within each format class, with campaign fixed effects and standard errors clustered by page. Campaign effects absorb how engaging each campaign's creatives are, so the arm's coefficient compares like with like. The two lifts, page against control and slot against control, are reported with their intervals; a difference between them is read only from their contrast, not from one being significant and the other not.
+
+\subsection{Then fit how far context reaches}\label{sec:protocol-fit}
+
+A first look needs no experiment. Delivery reports give impressions and engagements per site, format and advertiser category. Over 30 days, joined with the site profiles of \cref{sec:serving-backoff} for sites with at least five crawled pages, they support, per format, a binomial model
+\begin{equation}\label{eq:protocol-site}
+  \operatorname{logit} \mathrm{ER}_{s,c} = \alpha_c + \beta\, m_{s,c},
+\end{equation}
+where $\mathrm{ER}_{s,c}$ is the engagement rate of advertiser category $c$ on site $s$, $\alpha_c$ a fixed effect per category and $m_{s,c}$ the site's mean score for the \iab{} nodes the category maps to. An interval for $\beta$ above zero says that matching site context lifts engagement for that format; below zero says the reverse. A clear $\beta$ would still settle little. A site's mean profile is a blunt context, campaigns choose their sites, and category effects absorb how engaging each vertical's creatives are but not who bought where. The script that fits \cref{eq:protocol-site} exists; we report no result from it.
+
+The experiment's logs hold, for every impression, the page's labels, the blocks around the slot with their offsets, the format and the outcome. That is enough to fit what the lab now sets by hand. Two features enter the engagement model per format: the match between the creative and the page, and the match between the creative and the local window of \cref{eq:boundary-relevance}. The kernel's reach above and below the slot, $r^{\uparrow}_f$ and $r^{\downarrow}_f$ in \cref{eq:boundary-kernel}, are profiled by likelihood. The fitted page weight and reaches are the empirical answer to the question of \cref{sec:boundary}: for this format, how far around the slot does context count?
+
+Two things the protocol does not settle. Engagement counts interactions with the creative, which favours attention over congruence; brand recall, where congruence should matter most, needs brand-lift studies that only some campaigns run. And contextual match and obtrusive formats have each been found to raise purchase intent, but not together \citep{goldfarb2011online}. Mobile rich-media formats are obtrusive by design, so we expect the answer to differ by format, which is why every lift is read within one.

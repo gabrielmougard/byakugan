@@ -1,0 +1,3 @@
+(executable
+ (name golden)
+ (libraries contextual serve))

@@ -1,0 +1,20 @@
+(executable
+ (name robots_bench)
+ (modules robots_bench robots_re)
+ (libraries contextual re unix)
+ (foreign_stubs
+  (language cxx)
+  (names oneshot)
+  (flags
+   (:standard -std=c++17 -O2))
+  (include_dirs ../vendor/robotstxt ../vendor/robotstxt/compat)))
+
+(executable
+ (name html_bench)
+ (modules html_bench)
+ (libraries contextual unix))
+
+(executable
+ (name image_bench)
+ (modules image_bench)
+ (libraries contextual serve unix))

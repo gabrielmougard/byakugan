@@ -1,0 +1,4 @@
+(library
+ (name serve)
+ (libraries contextual lwt lwt.unix cohttp-lwt-unix domainslib curl curl_lwt uri yojson tls-lwt x509
+  mirage-crypto-rng.unix ptime.clock.os domain-name))

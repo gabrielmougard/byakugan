@@ -1,0 +1,53 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: registry
+  labels: { app.kubernetes.io/name: registry }
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: {{ .Values.storage.storageClass }}
+  resources:
+    requests:
+      storage: {{ .Values.storage.size }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: registry
+  labels: { app.kubernetes.io/name: registry }
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app.kubernetes.io/name: registry }
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: registry }
+    spec:
+      containers:
+        - name: registry
+          image: {{ .Values.image }}
+          env:
+            - name: REGISTRY_STORAGE_DELETE_ENABLED
+              value: "true"
+          ports:
+            - { name: http, containerPort: 5000 }
+          readinessProbe:
+            httpGet: { path: /v2/, port: http }
+          volumeMounts:
+            - { name: data, mountPath: /var/lib/registry }
+          resources: {{- toYaml .Values.resources | nindent 12 }}
+      volumes:
+        - name: data
+          persistentVolumeClaim: { claimName: registry }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: registry
+  labels: { app.kubernetes.io/name: registry }
+spec:
+  type: NodePort
+  selector: { app.kubernetes.io/name: registry }
+  ports:
+    - { name: http, port: 5000, targetPort: http, nodePort: {{ .Values.nodePort }} }

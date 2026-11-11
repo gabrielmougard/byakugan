@@ -1,0 +1,3 @@
+(executable
+ (name m2vgguf)
+ (libraries yojson unix m2v_native))

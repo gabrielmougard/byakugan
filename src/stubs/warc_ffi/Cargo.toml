@@ -1,0 +1,22 @@
+# C ABI over FastWARC (chatnoir-eu/chatnoir-resiliparse, Apache-2.0) for the
+# OCaml stubs in ../warc_stubs.c. Built offline from ../../vendor/rust
+# (cargo vendor --versioned-dirs ../../vendor/rust, to update it) by
+# ../build-warc.sh.
+[package]
+name = "warc_ffi"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+crate-type = ["staticlib", "cdylib"]
+path = "src/lib.rs"
+
+[dependencies]
+fastwarc = "=2.0.1"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+panic = "abort"

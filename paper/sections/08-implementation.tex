@@ -1,0 +1,146 @@
+% 08-implementation
+\section{Implementation}\label{sec:impl}
+
+\sys{} is written in OCaml~5 and built with dune; the source is at \repo. The numerical work runs in C: two neural models on a vendored copy of ggml, an HTML5 parser and Google's robots.txt matcher, each behind a small adapter. A Go library reads the serving profiles inside the bidder, and a Prebid.js module writes the slot context into the bid request. This section explains how the pieces fit, what the C code bought, how the fleet shares state, and what the system does on three Raspberry Pi boards.
+
+\subsection{Processes}\label{sec:impl-processes}
+
+Three kinds of process share one key-value store (\cref{fig:impl-layout}). Crawl daemons claim pages, fetch them, run the cascade and write profiles. Online servers read new profiles every three seconds, score slots for a creative described in words and serve the lab's front end. Valkey holds everything they share; \cref{tab:impl-keys} lists the key families. Any number of crawlers and online servers can run: none keeps state another needs.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[x=1cm,y=1cm,font=\footnotesize,scale=0.95,transform shape]
+\tikzset{
+  iproc/.style={draw=ink!70, rounded corners=3pt, fill=white, inner sep=5pt},
+  ilane/.style={draw=#1!80!black, fill=#1!12, rounded corners=2pt, align=center, inner sep=3pt, font=\scriptsize, minimum height=6mm},
+  ilink/.style={-{Stealth[length=1.6mm]}, semithick, draw=ink},
+  ilink2/.style={{Stealth[length=1.6mm]}-{Stealth[length=1.6mm]}, semithick, draw=ink},
+  inote/.style={note, font=\scriptsize\itshape},
+}
+% crawler internals
+\node[ilane=accent, text width=4.3cm] (loop) at (0,2.45) {\textbf{Lwt event loop}\\sockets, timers, libcurl multi,\\Valkey, the language model};
+\node[ilane=ttwo, text width=4.3cm] (pool) at (0,0.6) {\textbf{Domainslib pool}\\parse, cascade, segments,\\embeddings};
+\node[ilane=tthree, text width=4.3cm] (cstub) at (0,-1.25) {\textbf{C runtimes}\\ggml (Model2Vec, SigLIP~2),\\lexbor, robots matcher};
+\draw[ilink] ([xshift=-6mm]loop.south) -- node[left, font=\tiny] {detach} ([xshift=-6mm]pool.north);
+\draw[ilink] ([xshift=6mm]pool.north) -- node[right, font=\tiny] {result} ([xshift=6mm]loop.south);
+\draw[ilink2] (pool.south) -- (cstub.north);
+\node[iproc, fill=none, fit=(loop)(pool)(cstub), inner sep=7pt] (crawler) {};
+\node[font=\footnotesize\bfseries, anchor=south] at (crawler.north) {crawl daemon $\times n$};
+
+% valkey
+\node[store, minimum width=2.9cm, minimum height=2.1cm, align=center] (vk) at (6.4,0.6) {\textbf{Valkey}\\primary and\\replicas,\\Sentinel, TLS};
+\draw[ilink2] (crawler.east |- 0.9,0.9) -- node[above, font=\tiny, align=center] {frontier, claims,\\profiles, caches} (vk.west |- 0.9,0.9);
+
+% online
+\node[iproc, align=center, text width=2.9cm] (online) at (11.3,2.2) {\textbf{online server $\times m$}\\profiles every 3\,s,\\slot scoring, the lab};
+\node[iproc, align=center, text width=2.9cm] (bidder) at (11.3,-0.35) {\textbf{bidder}\\Go reader: one\\\code{GET} per level};
+\draw[ilink] (vk.east |- online.west) -- node[above, font=\tiny] {profiles} (online.west);
+\draw[ilink] (vk.east |- bidder.west) -- node[above, font=\tiny] {serving keys} (bidder.west);
+\node[iproc, align=center, text width=2.9cm, fill=soft] (page) at (11.3,-2.35) {\textbf{reader's browser}\\Prebid.js module:\\block SimHashes};
+\draw[ilink] (page.north) -- node[right, font=\tiny] {bid request} (bidder.south);
+\draw[ilink, dashed] ([yshift=-2.5mm]bidder.west) -| node[pos=0.25, below, font=\tiny] {crawl request on a miss} ([xshift=-8mm]vk.south);
+\node[inote, anchor=north] at (0,-2.3) {one process per machine is enough; replicas scale out};
+\end{tikzpicture}
+\caption{Processes and what they share. Inside a crawl daemon, the event loop owns every socket and the pool does every CPU-heavy step; work crosses between them only through \code{detach}. Crawl daemons and online servers keep no state of their own, so any number can run. The bidder reads serving keys and, on a miss, asks for a crawl.}
+\label{fig:impl-layout}
+\end{figure}
+
+\subsection{I/O on one domain, CPU on the others}\label{sec:impl-concurrency}
+
+OCaml~5 runs code in parallel on several domains. We use two libraries, each for what it is good at. Lwt owns the main domain: sockets, timers, libcurl's multi interface for fetches, the Valkey client and calls to the language model. A Domainslib pool runs everything that needs a CPU: parsing, the cascade, segment labels, embeddings. The bridge between them is one function, \code{detach pool f x}. It posts \code{f x} to the pool and returns an Lwt promise. When the worker finishes, it hands the result back through Lwt's notification pipe, the one thread-safe way into the event loop.
+
+Inside a job, work fans out again. \code{Web.parallel pool} gives the engine a map that runs Domainslib's \code{parallel\_for}, over a page's segments or, in the online server, over every crawled page when it scores a creative's reach. This nesting is why we did not use \code{lwt\_domain}: it makes the pool's type abstract, and a nested \code{parallel\_for} needs the pool itself. One rule prevents a class of crashes: no lazy value is shared across domains. A lazy value forced from two domains at once raises an exception. So prototypes are built eagerly at start, and each page's lazy content is forced once, in one job, before anything runs on it in parallel.
+
+The cascade is a pure function, but two of its tiers need the network. \Cref{alg:cascade-phases} splits a page into phases so that a worker never waits on a socket: the pool runs every level, the loop fetches images and calls the model, the pool runs again. A slow provider holds a promise on the event loop, not a CPU.
+
+\subsection{C where it pays}\label{sec:impl-c}
+
+Every C dependency is vendored and wrapped in a flat adapter: a few functions taking and returning plain arrays and strings, so the OCaml side never walks C structures. Each replaced an OCaml version, and each was checked against a reference implementation before it was kept. \Cref{fig:impl-speedups} gives the speedups.
+
+\paragraph{Model2Vec on ggml.} Model2Vec turns a sentence into the mean of static token embeddings distilled from a sentence transformer \citep{tulkens2024model2vec}. The models are converted to GGUF and run on ggml, which does the matrix products with SIMD. ggml has no tokenizer, so we wrote ours in C: ports of the WordPiece and Unigram paths of model2vec-rs, plus Hugging Face's SentencePiece character-map normaliser. On 1,133,527 texts per model they give exactly Hugging Face's token ids; 722 synthetic texts per model stay in the test suite. The real gain is in the similarity step. It was 704 dot products per text over OCaml lists; it is now one matrix multiply per page. A whole profile, all presets and segment labels without \tier{4}, takes 8.5\,ms instead of 56.3\,ms on English pages and 19.7\,ms instead of 103.3\,ms in other languages, on the larger multilingual model.
+
+\paragraph{SigLIP~2 on ggml.} The image tier runs SigLIP~2's vision tower \citep{tschannen2025siglip}, with weights quantised to Q8\_0: 100\,MB against 186\,MB in half precision. On our test images the embeddings agree with Hugging Face's to a cosine of 0.995 or better, and the zero-shot rankings are the same. Images are decoded by the system's libjpeg-turbo, libpng and libwebp rather than a single-header decoder whose author warns it is not meant for untrusted files; web images are untrusted input. On a laptop core an image takes 247\,ms at the model's default of 256 patches. A Raspberry Pi~4 core lacks the dot-product instructions of ggml's fast integer kernels, which gave 2.1 to 2.5 times on the laptop. There an image takes 3.46\,s on one thread at 128 patches, 0.94\,s on four. The crawler uses one thread per image and several images at once.
+
+\paragraph{lexbor.} The HTML5 parser replaced a tolerant tag scanner: tokens come out 3.3 times faster (141 to 480\,MB/s), and tokens plus extraction 2.6 times faster, about 1.4\,ms a page. A third of that time is now building OCaml values, which is not worth moving to C while classification costs far more.
+
+\paragraph{robots.txt.} Google's matcher runs through an adapter that parses a file once and replays only the rules that apply to us (\cref{sec:crawl-robots}). Two fixes inside the vendored code mattered most: a container that allocated and zero-filled memory for every rule tested, and user-agent matching repeated on every check.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+  xbar, bar shift=0pt, width=0.74\linewidth, height=6.4cm,
+  xmode=log, log basis x=2, xmin=1, xmax=32,
+  xtick={1,2,4,8,16,32}, xticklabels={1$\times$,2$\times$,4$\times$,8$\times$,16$\times$,32$\times$},
+  ytick={0,1,2,3,4,5,6}, y dir=reverse,
+  yticklabels={
+    {robots.txt: parse a file},
+    {robots.txt: check, vs.\ the binding},
+    {lexbor: tokens},
+    {lexbor: tokens and extraction},
+    {Model2Vec: English profile},
+    {Model2Vec: multilingual profile},
+    {SigLIP~2: int8 kernels},
+  },
+  yticklabel style={font=\footnotesize, align=right},
+  xlabel={speedup over the version it replaced (log scale)},
+  label style={font=\small}, ticklabel style={font=\footnotesize},
+  bar width=7.5pt, enlarge y limits=0.1,
+  axis line style={ink!60}, tick style={ink!60},
+  xmajorgrids, grid style={ink!12},
+  nodes near coords, nodes near coords style={font=\scriptsize, anchor=west},
+  point meta=explicit symbolic,
+]
+\addplot[fill=tzero!70, draw=tzero!90!black] coordinates {(19.5,0) [19.5$\times$]};
+\addplot[fill=tzero!70, draw=tzero!90!black] coordinates {(4,1) [about 4$\times$]};
+\addplot[fill=tone!70, draw=tone!90!black] coordinates {(3.4,2) [3.3$\times$]};
+\addplot[fill=tone!70, draw=tone!90!black] coordinates {(2.6,3) [2.6$\times$]};
+\addplot[fill=ttwo!70, draw=ttwo!90!black] coordinates {(6.6,4) [6.6$\times$]};
+\addplot[fill=ttwo!70, draw=ttwo!90!black] coordinates {(5.2,5) [5.2$\times$]};
+\addplot[fill=tthree!70, draw=tthree!90!black] coordinates {(2.3,6) [2.1--2.5$\times$]};
+\end{axis}
+\end{tikzpicture}
+\caption{What each C runtime bought, against the version it replaced: the pure OCaml robots.txt parser (parse) and the published binding (check), our OCaml tag scanner, Model2Vec in OCaml, and ggml's generic kernels for SigLIP~2 on a laptop core. Each was kept only after matching a reference implementation exactly or to a fixed tolerance.}
+\label{fig:impl-speedups}
+\end{figure}
+
+\subsection{Shared state}\label{sec:impl-state}
+
+\begin{table}[t]
+\centering\small
+\caption{Key families in the shared store and what each makes possible. Every step that touches more than one key runs as one Lua script.}
+\label{tab:impl-keys}
+\begin{tabularx}{\linewidth}{@{}>{\raggedright\arraybackslash}p{3.7cm}>{\raggedright\arraybackslash}X@{}}
+\toprule
+Keys & What they hold, and why \\
+\midrule
+frontier per origin; due origins; seen-set; claims & the queue of \cref{sec:crawl-frontier}: busiest first, one request at a time per site, each URL queued once in the fleet, dead crawlers' claims taken back \\
+robots.txt and licences per origin & one fetch serves every replica, for 24 hours or the licence's maximum age \\
+stored profiles (zstd JSON) and their index & every level, label, evidence record and block; the online servers reload what changed \\
+serving profiles, per page and per section & the protobuf the bidder reads, 30 days (\cref{sec:serving}) \\
+section and site sums & running sums of label scores per section and site, kept on every save \\
+refresh state and schedule; bid requests per page & validators, SimHash, publication time, unchanged count; when to fetch next \\
+image embeddings & one SigLIP~2 embedding per image URL and patch budget, 30 days \\
+archive index; slot positions per template & where each page's WARC record is; ad positions learned per template \\
+stats, recent events, replicas & the same status from any replica: what each crawled, \tier{4} calls and spend \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+The store runs as a primary and two replicas with Sentinel, over TLS with a password, each Sentinel on its own board. When the primary has been unreachable for 5 seconds, two Sentinels agree and promote a replica; the crawlers and online servers follow the new primary when a connection breaks or the server answers \code{READONLY}. The store uses append-only persistence and never evicts, so the frontier is never lost to memory pressure. With sections, refresh state and image embeddings, it grew from 45 to 60\,MB on the cluster's data.
+
+One failure taught us something about high availability on small clusters. Sentinel rewrites its configuration on every failover, with the primary and its epoch, and that file lived in an ephemeral volume. After a full shutdown no Sentinel knew the primary, so every pod fell back to the first one. When that pod's node had stopped first, its stale copy became the primary and the others resynchronised from it: in a reproduction on a local cluster, all 1,000 keys written after it stopped were lost, on every node, while the append-only files were intact. The fix keeps each Sentinel's configuration on the data volume and, when no Sentinel answers at start, takes the primary its own Sentinel last knew. A stale primary that comes back alone is demoted within about 30 seconds.
+
+\subsection{The pipeline version}\label{sec:impl-version}
+
+A profile is only reproducible if we know what produced it. Every profile carries a pipeline version: 16 hexadecimal digits of a SHA-256 over the taxonomy, lexicon and model files byte for byte, the calibration constants, the per-language tunings, the presets, the image settings and \tier{4}'s model. The refresh test of \cref{eq:crawl-unchanged} uses it: a page whose text did not move is reclassified anyway when the version did. Code is not hashed. A change to the code that moves labels bumps a constant by hand, since hashing the binary would reclassify every page on every build.
+
+\subsection{Three Raspberry Pis}\label{sec:impl-pi}
+
+The lab runs on three Raspberry Pi~4 boards with 8\,GB each, under k3s: three crawl daemons with four workers each, two online servers and the three Valkey pods. Images are built natively for 64-bit ARM on a laptop and pulled from a registry inside the cluster. On 3,198 pages over 274 hosts, with \tier{4} off and images at 128 patches, the cluster crawled 1.9 pages a second end to end, about 160,000 a day, and stored 78\% of them; the rest were refused by HTTP 403 or robots.txt. The cascade, not the network, sets that rate: the boards ran at about three of their four cores. That is the order of the head of the traffic. The busy head is a small fraction of all pages, only a small share of new pages become busy (\cref{sec:crawl-which}), and a refresh that finds a page unchanged costs a fetch, not a classification. Every page a bidder sees, millions a day, is far out of reach of three boards; the value budget of \cref{eq:cascade-budget} is what keeps the tail cheap on any hardware.
+
+The online servers load every profile they serve into memory, labels and evidence included. On 3,236 profiles that took about a gigabyte, and a one-gigabyte limit killed them; the lab now asks for two. The bidder does not have this problem: it reads one compact serving profile per lookup.
+
+\subsection{Tests that pin behaviour}\label{sec:impl-tests}
+
+Each C runtime is tested against its reference: tokenizer ids against Hugging Face, image embeddings against Hugging Face to a cosine tolerance, robots.txt against Google's one-shot matcher. Behaviour that two languages must share is pinned by fixtures that the OCaml side writes and the other side reads: 3,000 cases of the deal rule for the Go reader, 2,000 slot contexts, SimHash values in five languages for the Prebid module and the Go reader. The test suite also asserts end-to-end scenarios of the matcher, such as a crime headline in a co-visible widget blocking every creative on an otherwise safe food page. A failing test stops the container build.

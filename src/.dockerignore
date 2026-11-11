@@ -1,0 +1,9 @@
+_build
+store
+.env
+frontend/node_modules
+frontend/dist
+data/potion-*
+data/content_taxonomy_3.1.tsv
+data/siglip2-base-*
+stubs/warc_ffi/target

@@ -1,0 +1,17 @@
+; Written by src/stubs/vendor-rust.sh: the directories of the vendored
+; crates dune would otherwise leave out (names starting with . or _).
+(subdir rust/cfg-if-1.0.5 (dirs :standard .github))
+(subdir rust/futures-core-0.3.34/src/task (dirs :standard __internal))
+(subdir rust/hybrid-array-0.4.15 (dirs :standard .github))
+(subdir rust/jobserver-0.1.35 (dirs :standard .github))
+(subdir rust/libc-0.2.191/src/new/apple/libpthread/sys (dirs :standard _pthread))
+(subdir rust/libc-0.2.191/src/new/apple/xnu/sys (dirs :standard _types))
+(subdir rust/memchr-2.8.3 (dirs :standard .vim))
+(subdir rust/pkg-config-0.3.34 (dirs :standard .github))
+(subdir rust/proc-macro2-1.0.107 (dirs :standard .github))
+(subdir rust/quote-1.0.47 (dirs :standard .github))
+(subdir rust/r-efi-6.0.0 (dirs :standard .github))
+(subdir rust/rustversion-1.0.23 (dirs :standard .github))
+(subdir rust/shlex-2.0.1 (dirs :standard .github))
+(subdir rust/twox-hash-2.1.5 (dirs :standard .github))
+(subdir rust/unicode-ident-1.0.27 (dirs :standard .github))

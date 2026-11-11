@@ -1,0 +1,10 @@
+/* The classic theme leaves the light background transparent; under a
+   dark-preferring browser that shows a dark canvas behind dark text. */
+html[data-theme='light'] {
+  --ifm-background-color: #ffffff;
+  color-scheme: light;
+}
+
+html[data-theme='dark'] {
+  color-scheme: dark;
+}

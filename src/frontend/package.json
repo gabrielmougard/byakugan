@@ -1,0 +1,13 @@
+{
+  "private": true,
+  "scripts": {
+    "build": "NODE_PATH=node_modules esbuild ../_build/default/frontend/app/frontend/Main.mjs --bundle --format=esm --minify --outfile=dist/app.js --log-level=warning"
+  },
+  "dependencies": {
+    "react": "19.1.0",
+    "react-dom": "19.1.0"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.5"
+  }
+}

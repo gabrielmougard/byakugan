@@ -1,0 +1,244 @@
+{{- /*
+Valkey: one primary and replicas, one pod per node (local-path volumes stay
+on their node), each with a Sentinel sidecar. Sentinels promote a replica
+when the primary is down for 5 s; a pod that (re)starts asks the Sentinels
+who the primary is and replicates from it, so a restarted old primary comes
+back as a replica. Clients ask Sentinel too (sentinel://valkey-sentinel:26379).
+
+Each Sentinel keeps its config, which it rewrites on every failover, on the
+pod's data volume. After a full shutdown no Sentinel answers yet, so a pod
+takes the primary its own Sentinel last knew, not valkey-0: on a staggered
+shutdown valkey-0 may hold the oldest data, and the others would resync
+from it and lose the rest (deploy/valkey_shutdown.sh tests both cases). A pod
+whose Sentinel missed a failover comes back as primary with the old epoch,
+and the Sentinels' newer epoch turns it into a replica.
+
+Every connection, Sentinel's and replication's included, is TLS with the
+password from the valkey-auth Secret. The password and the CA are generated
+on the first install and kept on upgrades.
+*/ -}}
+{{- $ns := .Release.Namespace -}}
+{{- $domain := printf "valkey-headless.%s.svc.cluster.local" $ns -}}
+{{- $last := sub (int .Values.valkey.replicas) 1 -}}
+{{- $name := .Values.valkey.masterName -}}
+{{- $auth := lookup "v1" "Secret" $ns "valkey-auth" -}}
+{{- $tls := lookup "v1" "Secret" $ns "valkey-tls" -}}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: valkey-auth
+  labels:
+    {{- include "contextual.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/resource-policy: keep
+type: Opaque
+data:
+  {{- if $auth }}
+  password: {{ $auth.data.password }}
+  {{- else }}
+  password: {{ randAlphaNum 40 | b64enc }}
+  {{- end }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: valkey-tls
+  labels:
+    {{- include "contextual.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/resource-policy: keep
+type: Opaque
+data:
+  {{- if $tls }}
+  {{- toYaml $tls.data | nindent 2 }}
+  {{- else }}
+  {{- $ca := genCA "contextual-valkey-ca" 3650 }}
+  {{- $names := list "localhost" "valkey-sentinel" (printf "valkey-sentinel.%s.svc" $ns) (printf "valkey-sentinel.%s.svc.cluster.local" $ns) (printf "*.%s" $domain) }}
+  {{- $cert := genSignedCert "valkey" (list "127.0.0.1") $names 3650 $ca }}
+  ca.crt: {{ $ca.Cert | b64enc }}
+  tls.crt: {{ $cert.Cert | b64enc }}
+  tls.key: {{ $cert.Key | b64enc }}
+  {{- end }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: valkey
+  labels:
+    {{- include "contextual.labels" . | nindent 4 }}
+data:
+  valkey.conf: |
+    port 0
+    tls-port 6379
+    tls-cert-file /tls/tls.crt
+    tls-key-file /tls/tls.key
+    tls-ca-cert-file /tls/ca.crt
+    tls-auth-clients no
+    tls-replication yes
+    dir /data
+    appendonly yes
+    appendfsync everysec
+    # The frontier and seen-set must never be evicted.
+    maxmemory {{ .Values.valkey.maxmemory }}
+    maxmemory-policy noeviction
+    protected-mode no
+  find-primary.sh: |
+    # Prints what the Sentinels call the primary; when none answers (a full
+    # restart), the primary this pod's Sentinel last knew; valkey-0 on a
+    # first start.
+    # The timeout: a Sentinel that does not speak TLS (an older pod during a
+    # rollout) would otherwise hang the handshake, and this pod with it.
+    for i in $(seq 0 {{ $last }}); do
+      primary=$(timeout 3 valkey-cli --tls --cacert /tls/ca.crt -h "valkey-$i.{{ $domain }}" -p 26379 --raw \
+        SENTINEL get-master-addr-by-name {{ $name }} 2>/dev/null | head -n 1)
+      if [ -n "$primary" ]; then echo "$primary"; exit 0; fi
+    done
+    known=$(awk '$1 == "sentinel" && $2 == "monitor" && $3 == "{{ $name }}" { print $4 }' /data/sentinel/sentinel.conf 2>/dev/null)
+    echo "${known:-valkey-0.{{ $domain }}}"
+  start-valkey.sh: |
+    set -eu
+    self="$(hostname).{{ $domain }}"
+    primary=$(sh /etc/valkey/find-primary.sh)
+    auth="--requirepass $REDISCLI_AUTH --masterauth $REDISCLI_AUTH"
+    if [ "$primary" = "$self" ]; then
+      exec valkey-server /etc/valkey/valkey.conf --replica-announce-ip "$self" $auth
+    fi
+    exec valkey-server /etc/valkey/valkey.conf --replica-announce-ip "$self" $auth --replicaof "$primary" 6379
+  start-sentinel.sh: |
+    set -eu
+    self="$(hostname).{{ $domain }}"
+    mkdir -p /data/sentinel
+    # Kept across restarts: Sentinel rewrites it with the current primary and
+    # its config epoch.
+    if [ -s /data/sentinel/sentinel.conf ]; then exec valkey-sentinel /data/sentinel/sentinel.conf; fi
+    primary=$(sh /etc/valkey/find-primary.sh)
+    cat > /data/sentinel/sentinel.conf <<EOF
+    port 0
+    tls-port 26379
+    tls-cert-file /tls/tls.crt
+    tls-key-file /tls/tls.key
+    tls-ca-cert-file /tls/ca.crt
+    tls-auth-clients no
+    tls-replication yes
+    requirepass $REDISCLI_AUTH
+    sentinel sentinel-pass $REDISCLI_AUTH
+    dir /data/sentinel
+    sentinel resolve-hostnames yes
+    sentinel announce-hostnames yes
+    sentinel announce-ip $self
+    sentinel monitor {{ $name }} $primary 6379 {{ .Values.valkey.quorum }}
+    sentinel auth-pass {{ $name }} $REDISCLI_AUTH
+    sentinel down-after-milliseconds {{ $name }} 5000
+    sentinel failover-timeout {{ $name }} 30000
+    sentinel parallel-syncs {{ $name }} 1
+    EOF
+    exec valkey-sentinel /data/sentinel/sentinel.conf
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: valkey-headless
+  labels:
+    {{- include "contextual.labels" . | nindent 4 }}
+spec:
+  clusterIP: None
+  # Sentinels and replicas resolve each other before they are ready.
+  publishNotReadyAddresses: true
+  selector: { app.kubernetes.io/name: valkey }
+  ports:
+    - { name: valkey, port: 6379 }
+    - { name: sentinel, port: 26379 }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: valkey-sentinel
+  labels:
+    {{- include "contextual.labels" . | nindent 4 }}
+spec:
+  selector: { app.kubernetes.io/name: valkey }
+  ports:
+    - { name: sentinel, port: 26379, targetPort: sentinel }
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: valkey
+  labels:
+    {{- include "contextual.labels" . | nindent 4 }}
+    app.kubernetes.io/name: valkey
+spec:
+  serviceName: valkey-headless
+  replicas: {{ .Values.valkey.replicas }}
+  selector:
+    matchLabels: { app.kubernetes.io/name: valkey }
+  template:
+    metadata:
+      labels:
+        {{- include "contextual.labels" . | nindent 8 }}
+        app.kubernetes.io/name: valkey
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels: { app.kubernetes.io/name: valkey }
+      securityContext: { runAsUser: 999, runAsGroup: 999, fsGroup: 999, runAsNonRoot: true }
+      containers:
+        - name: valkey
+          image: {{ .Values.valkey.image }}
+          command: [sh, /etc/valkey/start-valkey.sh]
+          env: &auth
+            # valkey-cli reads it; the start scripts pass it on.
+            - name: REDISCLI_AUTH
+              valueFrom:
+                secretKeyRef: { name: valkey-auth, key: password }
+          ports:
+            - { name: valkey, containerPort: 6379 }
+          readinessProbe:
+            exec: { command: [valkey-cli, --tls, --cacert, /tls/ca.crt, ping] }
+          livenessProbe:
+            exec: { command: [valkey-cli, --tls, --cacert, /tls/ca.crt, ping] }
+            periodSeconds: 10
+          securityContext:
+            {{- include "contextual.securityContext" . | nindent 12 }}
+          volumeMounts:
+            - { name: data, mountPath: /data }
+            - { name: config, mountPath: /etc/valkey }
+            - { name: tls, mountPath: /tls }
+          resources:
+            {{- toYaml .Values.valkey.resources | nindent 12 }}
+        - name: sentinel
+          image: {{ .Values.valkey.image }}
+          command: [sh, /etc/valkey/start-sentinel.sh]
+          env: *auth
+          ports:
+            - { name: sentinel, containerPort: 26379 }
+          readinessProbe:
+            exec: { command: [valkey-cli, --tls, --cacert, /tls/ca.crt, -p, "26379", ping] }
+          securityContext:
+            {{- include "contextual.securityContext" . | nindent 12 }}
+          volumeMounts:
+            - { name: data, mountPath: /data }
+            - { name: config, mountPath: /etc/valkey }
+            - { name: tls, mountPath: /tls }
+          resources:
+            requests: { cpu: 10m, memory: 16Mi }
+            limits: { memory: 64Mi }
+      volumes:
+        - name: config
+          configMap: { name: valkey }
+        - name: tls
+          secret: { secretName: valkey-tls, defaultMode: 0440 }
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        storageClassName: {{ .Values.valkey.storage.storageClass }}
+        resources:
+          requests:
+            storage: {{ .Values.valkey.storage.size }}

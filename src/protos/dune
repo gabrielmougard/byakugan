@@ -1,0 +1,9 @@
+(library
+ (name protos)
+ (libraries ocaml-protoc-plugin))
+
+(rule
+ (targets profile.ml)
+ (deps contextual/v1/profile.proto)
+ (action
+  (run protoc -I . --ocaml_out=. contextual/v1/profile.proto)))

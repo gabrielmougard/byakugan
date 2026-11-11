@@ -1,0 +1,71 @@
+% Shared preamble. Built with Tectonic (XeTeX): see paper/Makefile.
+\usepackage[a4paper,margin=2.4cm]{geometry}
+\usepackage{lmodern}
+\usepackage[T1]{fontenc}
+\usepackage{microtype}
+\usepackage{amsmath,amssymb,amsthm,mathtools}
+\usepackage{booktabs,tabularx,multirow,array}
+\usepackage{graphicx}
+\usepackage[table]{xcolor}
+\usepackage{siunitx}
+\usepackage{enumitem}
+\usepackage{caption,subcaption}
+\usepackage{listings}
+\usepackage{algorithm}
+\usepackage[noend]{algpseudocode}
+\usepackage{tikz}
+\usetikzlibrary{positioning,arrows.meta,shapes.geometric,shapes.misc,fit,backgrounds,calc,
+  decorations.pathreplacing,matrix,patterns}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
+\usepgfplotslibrary{groupplots,fillbetween}
+\usepackage[numbers,sort&compress]{natbib}
+\usepackage[colorlinks=true,linkcolor=accent,citecolor=accent,urlcolor=accent]{hyperref}
+\usepackage[capitalise,noabbrev]{cleveref}
+% Line anchors restart in every algorithm; make them unique for hyperref.
+\makeatletter
+\providecommand{\theHALG@line}{}\renewcommand{\theHALG@line}{\thealgorithm.\arabic{ALG@line}}
+\makeatother
+
+\sisetup{group-separator={,},group-minimum-digits=4}
+\setlist{itemsep=2pt,topsep=4pt}
+\captionsetup{font=small,labelfont=bf}
+
+% Palette: one hue per cascade tier, used in every figure.
+\definecolor{accent}{HTML}{1F5FAD}
+\definecolor{tzero}{HTML}{8C8C8C}
+\definecolor{tone}{HTML}{2E86AB}
+\definecolor{ttwo}{HTML}{3BA55C}
+\definecolor{tthree}{HTML}{E2A33B}
+\definecolor{tfour}{HTML}{C0392B}
+\definecolor{soft}{HTML}{F2F4F7}
+\definecolor{ink}{HTML}{263238}
+
+\tikzset{
+  box/.style={draw=ink,rounded corners=2pt,fill=soft,align=center,font=\small,inner sep=4pt},
+  store/.style={draw=ink,cylinder,shape border rotate=90,aspect=0.2,fill=soft,align=center,font=\small},
+  arrow/.style={-{Stealth[length=2mm]},thick,draw=ink},
+  dashedarrow/.style={-{Stealth[length=2mm]},thick,dashed,draw=ink},
+  note/.style={font=\footnotesize\itshape,text=ink!80,align=center},
+}
+
+\lstset{basicstyle=\ttfamily\footnotesize,columns=fullflexible,breaklines=true,
+  frame=single,rulecolor=\color{ink!30},backgroundcolor=\color{soft},
+  keywordstyle=\color{accent}\bfseries,commentstyle=\color{ink!60}\itshape,
+  showstringspaces=false,xleftmargin=4pt,xrightmargin=4pt}
+
+\theoremstyle{definition}
+\newtheorem{definition}{Definition}
+\newtheorem{proposition}{Proposition}
+
+% Names used throughout.
+\newcommand{\sys}{\textsc{Byakugan}}
+\newcommand{\repo}{\url{https://github.com/gabrielmougard/byakugan}}
+\newcommand{\tier}[1]{\textsf{T#1}}
+\newcommand{\preset}[1]{\texttt{#1}}
+\newcommand{\code}[1]{\texttt{#1}}
+\newcommand{\hF}{\ensuremath{\mathrm{hF}_1}}
+\newcommand{\hP}{\ensuremath{\mathrm{hP}}}
+\newcommand{\hR}{\ensuremath{\mathrm{hR}}}
+\newcommand{\iab}{IAB Content Taxonomy~3.1}
+\DeclareMathOperator*{\argmax}{arg\,max}

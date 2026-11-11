@@ -1,0 +1,7 @@
+(lang dune 3.8)
+
+; Executables here are native only, so foreign archives (ggml, lexbor) are
+; linked statically and need no dll*.so beside them.
+(context
+ (default
+  (disable_dynamically_linked_foreign_archives true)))
