@@ -1,0 +1,3 @@
+(executable
+ (name sdkfixtures)
+ (libraries contextual protos ocaml-protoc-plugin digestif.c))

@@ -1,0 +1,5 @@
+apiVersion: v2
+name: contextual
+description: Placement Lab - crawl daemon and online placement server
+type: application
+version: 0.1.0

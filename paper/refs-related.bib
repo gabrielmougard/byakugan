@@ -1,0 +1,539 @@
+% Bibliography for sections 02-related and 03-overview.
+% Every entry is listed in study/literature.md (checked sources) or is a
+% standard named in the repo. url fields come from literature.md, except
+% where noted (DOI or spec page checked on 2026-11-11).
+
+% ---------------------------------------------------------------------------
+% Contextual advertising: IR classics
+% ---------------------------------------------------------------------------
+
+@inproceedings{ribeironeto2005impedance,
+  author    = {Ribeiro-Neto, Berthier and Cristo, Marco and Golgher, Paulo B. and de Moura, Edleno Silva},
+  title     = {Impedance Coupling in Content-Targeted Advertising},
+  booktitle = {Proceedings of the 28th Annual International ACM SIGIR Conference on Research and Development in Information Retrieval},
+  pages     = {496--503},
+  year      = {2005},
+  url       = {https://doi.org/10.1145/1076034.1076119}
+}
+
+@inproceedings{broder2007semantic,
+  author    = {Broder, Andrei and Fontoura, Marcus and Josifovski, Vanja and Riedel, Lance},
+  title     = {A Semantic Approach to Contextual Advertising},
+  booktitle = {Proceedings of the 30th Annual International ACM SIGIR Conference on Research and Development in Information Retrieval},
+  pages     = {559--566},
+  year      = {2007},
+  url       = {https://fontoura.org/papers/semsyn.pdf}
+}
+
+@inproceedings{anagnostopoulos2007just,
+  author    = {Anagnostopoulos, Aris and Broder, Andrei Z. and Gabrilovich, Evgeniy and Josifovski, Vanja and Riedel, Lance},
+  title     = {Just-in-Time Contextual Advertising},
+  booktitle = {Proceedings of the 16th ACM Conference on Information and Knowledge Management},
+  pages     = {331--340},
+  year      = {2007},
+  url       = {https://www.gabrilovich.com/publications/papers/Anagnostopoulos2007JIT.pdf}
+}
+
+@inproceedings{chakrabarti2008contextual,
+  author    = {Chakrabarti, Deepayan and Agarwal, Deepak and Josifovski, Vanja},
+  title     = {Contextual Advertising by Combining Relevance with Click Feedback},
+  booktitle = {Proceedings of the 17th International Conference on World Wide Web},
+  pages     = {417--426},
+  year      = {2008},
+  url       = {https://archives.iw3c2.org/www2008/papers/pdf/p417-chakrabarti.pdf}
+}
+
+@inproceedings{broder2008swing,
+  author    = {Broder, Andrei and Ciaramita, Massimiliano and Fontoura, Marcus and Gabrilovich, Evgeniy and Josifovski, Vanja and Metzler, Donald and Murdock, Vanessa and Plachouras, Vassilis},
+  title     = {To Swing or Not to Swing: Learning When (Not) to Advertise},
+  booktitle = {Proceedings of the 17th ACM Conference on Information and Knowledge Management},
+  year      = {2008},
+  url       = {https://dblp.uni-trier.de/rec/conf/cikm/BroderCFGJMMP08.html}
+}
+
+@article{fan2010sentiment,
+  author  = {Fan, Teng-Kai and Chang, Chia-Hui},
+  title   = {Sentiment-Oriented Contextual Advertising},
+  journal = {Knowledge and Information Systems},
+  volume  = {23},
+  number  = {3},
+  pages   = {321--344},
+  year    = {2010},
+  url     = {https://doi.org/10.1007/s10115-009-0222-2}
+}
+
+@inproceedings{kan2005fast,
+  author    = {Kan, Min-Yen and Nguyen Thi, Hoang Oanh},
+  title     = {Fast Webpage Classification Using {URL} Features},
+  booktitle = {Proceedings of the 14th ACM International Conference on Information and Knowledge Management},
+  pages     = {325--326},
+  year      = {2005},
+  url       = {https://www.comp.nus.edu.sg/~kanmy/papers/cp689-kan.pdf}
+}
+
+@article{baykan2011comprehensive,
+  author  = {Baykan, Eda and Henzinger, Monika and Marian, Ludmila and Weber, Ingmar},
+  title   = {A Comprehensive Study of Features and Algorithms for {URL}-Based Topic Classification},
+  journal = {ACM Transactions on the Web},
+  volume  = {5},
+  number  = {3},
+  pages   = {1--29},
+  year    = {2011},
+  url     = {https://doi.org/10.1145/1993053.1993057}
+}
+
+% ---------------------------------------------------------------------------
+% Modern contextual work, taxonomies, LLM labels and distillation
+% ---------------------------------------------------------------------------
+
+@inproceedings{chaubey2025contextiq,
+  author    = {Chaubey, Ashutosh and Agarwaal, Anoubhav and Roy, Sartaki Sinha and Agrawal, Aayush and Ghose, Susmita},
+  title     = {{ContextIQ}: A Multimodal Expert-Based Video Retrieval System for Contextual Advertising},
+  booktitle = {Proceedings of the IEEE/CVF Winter Conference on Applications of Computer Vision (WACV)},
+  year      = {2025},
+  url       = {https://arxiv.org/abs/2410.22233}
+}
+
+@misc{iabtechlab2024content,
+  author       = {{IAB Tech Lab}},
+  title        = {Content Taxonomy 3.1},
+  howpublished = {Taxonomy release, TSV},
+  year         = {2024},
+  url          = {https://github.com/InteractiveAdvertisingBureau/Taxonomies/blob/main/Content%20Taxonomies/Content%20Taxonomy%203.1.tsv}
+}
+
+@misc{iabtechlab2026iab,
+  author       = {{IAB Tech Lab}},
+  title        = {iab-taxonomy-classifier},
+  howpublished = {Software repository},
+  year         = {2026},
+  url          = {https://github.com/IABTechLab/iab-taxonomy-classifier}
+}
+
+@misc{kamen2025order,
+  author       = {Kamen, Ariel},
+  title        = {Order from Chaos: Comparative Study of Ten Leading {LLMs} on Unstructured Data Categorization},
+  howpublished = {arXiv:2510.13885},
+  year         = {2025},
+  url          = {https://arxiv.org/abs/2510.13885}
+}
+
+@inproceedings{zhang2025teleclass,
+  author    = {Zhang, Yunyi and Yang, Ruozhen and Xu, Xueqiang and Li, Rui and Xiao, Jinfeng and Shen, Jiaming and Han, Jiawei},
+  title     = {{TELEClass}: Taxonomy Enrichment and {LLM}-Enhanced Hierarchical Text Classification with Minimal Supervision},
+  booktitle = {Proceedings of the ACM Web Conference (WWW)},
+  year      = {2025},
+  url       = {https://arxiv.org/abs/2403.00165}
+}
+
+@inproceedings{wettig2025organize,
+  author    = {Wettig, Alexander and Lo, Kyle and Min, Sewon and Hajishirzi, Hannaneh and Chen, Danqi and Soldaini, Luca},
+  title     = {Organize the Web: Constructing Domains Enhances Pre-Training Data Curation},
+  booktitle = {Proceedings of the 42nd International Conference on Machine Learning (ICML)},
+  year      = {2025},
+  url       = {https://arxiv.org/abs/2502.10341}
+}
+
+@misc{huggingfacefw2024fineweb,
+  author       = {{HuggingFaceFW}},
+  title        = {{FineWeb-Edu} Classifier},
+  howpublished = {Model card},
+  year         = {2024},
+  url          = {https://huggingface.co/HuggingFaceFW/fineweb-edu-classifier}
+}
+
+@article{gilardi2023chatgpt,
+  author  = {Gilardi, Fabrizio and Alizadeh, Meysam and Kubli, Ma{\"e}l},
+  title   = {{ChatGPT} Outperforms Crowd Workers for Text-Annotation Tasks},
+  journal = {Proceedings of the National Academy of Sciences},
+  volume  = {120},
+  number  = {30},
+  year    = {2023},
+  url     = {https://doi.org/10.1073/pnas.2305016120}
+}
+
+% ---------------------------------------------------------------------------
+% Cascades, deferral, selective prediction, calibration
+% ---------------------------------------------------------------------------
+
+@article{chen2024frugalgpt,
+  author  = {Chen, Lingjiao and Zaharia, Matei and Zou, James},
+  title   = {{FrugalGPT}: How to Use Large Language Models While Reducing Cost and Improving Performance},
+  journal = {Transactions on Machine Learning Research},
+  year    = {2024},
+  url     = {https://arxiv.org/abs/2305.05176}
+}
+
+@inproceedings{gupta2024language,
+  author    = {Gupta, Neha and Narasimhan, Harikrishna and Jitkrittum, Wittawat and Rawat, Ankit Singh and Menon, Aditya Krishna and Kumar, Sanjiv},
+  title     = {Language Model Cascades: Token-Level Uncertainty and Beyond},
+  booktitle = {International Conference on Learning Representations (ICLR)},
+  year      = {2024},
+  url       = {https://arxiv.org/abs/2404.10136}
+}
+
+@inproceedings{nie2024online,
+  author    = {Nie, Lunyiu and Ding, Zhimin and Hu, Erdong and Jermaine, Christopher and Chaudhuri, Swarat},
+  title     = {Online Cascade Learning for Efficient Inference over Streams},
+  booktitle = {Proceedings of the 41st International Conference on Machine Learning (ICML)},
+  year      = {2024},
+  url       = {https://proceedings.mlr.press/v235/nie24a.html}
+}
+
+@inproceedings{ramirez2024cache,
+  author    = {Ram{\'i}rez, Guillem and Lindemann, Matthias and Birch, Alexandra and Titov, Ivan},
+  title     = {Cache \& Distil: Optimising {API} Calls to Large Language Models},
+  booktitle = {Findings of the Association for Computational Linguistics: ACL 2024},
+  year      = {2024},
+  url       = {https://aclanthology.org/2024.findings-acl.704}
+}
+
+@article{kolawole2025agreement,
+  author  = {Kolawole, Steven and Dennis, Don and Talwalkar, Ameet and Smith, Virginia},
+  title   = {Agreement-Based Cascading for Efficient Inference},
+  journal = {Transactions on Machine Learning Research},
+  year    = {2025},
+  url     = {https://arxiv.org/abs/2407.02348}
+}
+
+@inproceedings{dekoninck2025unified,
+  author    = {Dekoninck, Jasper and Baader, Maximilian and Vechev, Martin},
+  title     = {A Unified Approach to Routing and Cascading for {LLMs}},
+  booktitle = {Proceedings of the 42nd International Conference on Machine Learning (ICML)},
+  year      = {2025},
+  url       = {https://arxiv.org/abs/2410.10347}
+}
+
+@misc{li2026llmrouterbench,
+  author       = {Li, Hao and Zhang, Yiqun and Guo, Zhaoyan and Wang, Chenxu and Tang, Shengji and Zhang, Qiaosheng and others},
+  title        = {{LLMRouterBench}: A Massive Benchmark and Unified Framework for {LLM} Routing},
+  howpublished = {arXiv:2601.07206},
+  year         = {2026},
+  url          = {https://arxiv.org/abs/2601.07206}
+}
+
+@inproceedings{geifman2017selective,
+  author    = {Geifman, Yonatan and El-Yaniv, Ran},
+  title     = {Selective Classification for Deep Neural Networks},
+  booktitle = {Advances in Neural Information Processing Systems (NeurIPS)},
+  year      = {2017},
+  url       = {https://arxiv.org/abs/1705.08500}
+}
+
+@inproceedings{angelopoulos2024conformal,
+  author    = {Angelopoulos, Anastasios N. and Bates, Stephen and Fisch, Adam and Lei, Lihua and Schuster, Tal},
+  title     = {Conformal Risk Control},
+  booktitle = {International Conference on Learning Representations (ICLR)},
+  year      = {2024},
+  url       = {https://arxiv.org/abs/2208.02814}
+}
+
+@article{bates2021distribution,
+  author  = {Bates, Stephen and Angelopoulos, Anastasios and Lei, Lihua and Malik, Jitendra and Jordan, Michael I.},
+  title   = {Distribution-Free, Risk-Controlling Prediction Sets},
+  journal = {Journal of the ACM},
+  volume  = {68},
+  number  = {6},
+  year    = {2021},
+  url     = {https://arxiv.org/abs/2101.02703}
+}
+
+@misc{angelopoulos2021learn,
+  author       = {Angelopoulos, Anastasios N. and Bates, Stephen and Cand{\`e}s, Emmanuel J. and Jordan, Michael I. and Lei, Lihua},
+  title        = {Learn then Test: Calibrating Predictive Algorithms to Achieve Risk Control},
+  howpublished = {arXiv:2110.01052},
+  year         = {2021},
+  url          = {https://arxiv.org/abs/2110.01052}
+}
+
+@inproceedings{ding2023class,
+  author    = {Ding, Tiffany and Angelopoulos, Anastasios N. and Bates, Stephen and Jordan, Michael I. and Tibshirani, Ryan J.},
+  title     = {Class-Conditional Conformal Prediction with Many Classes},
+  booktitle = {Advances in Neural Information Processing Systems (NeurIPS)},
+  year      = {2023},
+  url       = {https://arxiv.org/abs/2306.09335}
+}
+
+@inproceedings{guo2017calibration,
+  author    = {Guo, Chuan and Pleiss, Geoff and Sun, Yu and Weinberger, Kilian Q.},
+  title     = {On Calibration of Modern Neural Networks},
+  booktitle = {Proceedings of the 34th International Conference on Machine Learning (ICML)},
+  year      = {2017},
+  url       = {https://proceedings.mlr.press/v70/guo17a}
+}
+
+% ---------------------------------------------------------------------------
+% Embeddings and image-text models
+% ---------------------------------------------------------------------------
+
+@misc{tulkens2024model2vec,
+  author       = {Tulkens, Stephan and {van Dongen}, Thomas},
+  title        = {{Model2Vec}: Fast State-of-the-Art Static Embeddings},
+  howpublished = {Software repository, MIT licence},
+  year         = {2024},
+  url          = {https://github.com/MinishLab/model2vec}
+}
+
+@inproceedings{radford2021learning,
+  author    = {Radford, Alec and Kim, Jong Wook and Hallacy, Chris and Ramesh, Aditya and Goh, Gabriel and Agarwal, Sandhini and others},
+  title     = {Learning Transferable Visual Models From Natural Language Supervision},
+  booktitle = {Proceedings of the 38th International Conference on Machine Learning (ICML)},
+  year      = {2021},
+  url       = {https://arxiv.org/abs/2103.00020}
+}
+
+@misc{tschannen2025siglip,
+  author       = {Tschannen, Michael and Gritsenko, Alexey and Wang, Xiao and Naeem, Muhammad Ferjad and Alabdulmohsin, Ibrahim and Parthasarathy, Nikhil and others},
+  title        = {{SigLIP 2}: Multilingual Vision-Language Encoders with Improved Semantic Understanding, Localization, and Dense Features},
+  howpublished = {arXiv:2502.14786},
+  year         = {2025},
+  url          = {https://arxiv.org/abs/2502.14786}
+}
+
+@inproceedings{wang2022n24news,
+  author    = {Wang, Zhen and Shan, Xu and Zhang, Xiangxie and Yang, Jie},
+  title     = {{N24News}: A New Dataset for Multimodal News Classification},
+  booktitle = {Proceedings of the 13th Language Resources and Evaluation Conference (LREC)},
+  pages     = {6768--6775},
+  year      = {2022},
+  url       = {https://arxiv.org/abs/2108.13327}
+}
+
+% ---------------------------------------------------------------------------
+% Explanations
+% ---------------------------------------------------------------------------
+
+@inproceedings{turpin2023language,
+  author    = {Turpin, Miles and Michael, Julian and Perez, Ethan and Bowman, Samuel R.},
+  title     = {Language Models Don't Always Say What They Think: Unfaithful Explanations in Chain-of-Thought Prompting},
+  booktitle = {Advances in Neural Information Processing Systems (NeurIPS)},
+  year      = {2023},
+  url       = {https://arxiv.org/abs/2305.04388}
+}
+
+@misc{chen2025reasoning,
+  author       = {Chen, Yanda and Benton, Joe and Radhakrishnan, Ansh and Uesato, Jonathan and Denison, Carson and Schulman, John and others},
+  title        = {Reasoning Models Don't Always Say What They Think},
+  howpublished = {arXiv:2505.05410},
+  year         = {2025},
+  url          = {https://arxiv.org/abs/2505.05410}
+}
+
+@article{rashkin2023measuring,
+  author  = {Rashkin, Hannah and Nikolaev, Vitaly and Lamm, Matthew and Aroyo, Lora and Collins, Michael and Das, Dipanjan and Petrov, Slav and Tomar, Gaurav Singh and Turc, Iulia and Reitter, David},
+  title   = {Measuring Attribution in Natural Language Generation Models},
+  journal = {Computational Linguistics},
+  volume  = {49},
+  number  = {4},
+  year    = {2023},
+  url     = {https://aclanthology.org/2023.cl-4.2/}
+}
+
+@inproceedings{deyoung2020eraser,
+  author    = {DeYoung, Jay and Jain, Sarthak and Rajani, Nazneen Fatema and Lehman, Eric and Xiong, Caiming and Socher, Richard and Wallace, Byron C.},
+  title     = {{ERASER}: A Benchmark to Evaluate Rationalized {NLP} Models},
+  booktitle = {Proceedings of the 58th Annual Meeting of the Association for Computational Linguistics (ACL)},
+  year      = {2020},
+  url       = {https://arxiv.org/abs/1911.03429}
+}
+
+@inproceedings{sun2025concept,
+  author    = {Sun, Chung-En and Oikarinen, Tuomas and Ustun, Berk and Weng, Tsui-Wei},
+  title     = {Concept Bottleneck Large Language Models},
+  booktitle = {International Conference on Learning Representations (ICLR)},
+  year      = {2025},
+  url       = {https://arxiv.org/abs/2412.07992}
+}
+
+% ---------------------------------------------------------------------------
+% Crawling, freshness, near-duplicates, extraction, publisher signals
+% ---------------------------------------------------------------------------
+
+@article{heydon1999mercator,
+  author  = {Heydon, Allan and Najork, Marc},
+  title   = {Mercator: A Scalable, Extensible Web Crawler},
+  journal = {World Wide Web},
+  volume  = {2},
+  number  = {4},
+  pages   = {219--229},
+  year    = {1999},
+  url     = {https://doi.org/10.1023/A:1019213109274}
+}
+
+@article{cho2003effective,
+  author  = {Cho, Junghoo and Garcia-Molina, Hector},
+  title   = {Effective Page Refresh Policies for Web Crawlers},
+  journal = {ACM Transactions on Database Systems},
+  volume  = {28},
+  number  = {4},
+  pages   = {390--426},
+  year    = {2003},
+  url     = {https://doi.org/10.1145/958942.958945}
+}
+
+@article{cho2003estimating,
+  author  = {Cho, Junghoo and Garcia-Molina, Hector},
+  title   = {Estimating Frequency of Change},
+  journal = {ACM Transactions on Internet Technology},
+  volume  = {3},
+  number  = {3},
+  pages   = {256--290},
+  year    = {2003},
+  url     = {https://doi.org/10.1145/857166.857170}
+}
+
+@inproceedings{schonfeld2009sitemaps,
+  author    = {Schonfeld, Uri and Shivakumar, Narayanan},
+  title     = {Sitemaps: Above and Beyond the Crawl of Duty},
+  booktitle = {Proceedings of the 18th International Conference on World Wide Web},
+  pages     = {991--1000},
+  year      = {2009},
+  url       = {https://doi.org/10.1145/1526709.1526842}
+}
+
+% literature.md lists this paper without a link; the DOI was checked on Crossref.
+@inproceedings{charikar2002similarity,
+  author    = {Charikar, Moses S.},
+  title     = {Similarity Estimation Techniques from Rounding Algorithms},
+  booktitle = {Proceedings of the 34th Annual ACM Symposium on Theory of Computing (STOC)},
+  pages     = {380--388},
+  year      = {2002},
+  url       = {https://doi.org/10.1145/509907.509965}
+}
+
+@inproceedings{manku2007detecting,
+  author    = {Manku, Gurmeet Singh and Jain, Arvind and Das Sarma, Anish},
+  title     = {Detecting Near-Duplicates for Web Crawling},
+  booktitle = {Proceedings of the 16th International Conference on World Wide Web},
+  pages     = {141--150},
+  year      = {2007},
+  url       = {https://doi.org/10.1145/1242572.1242592}
+}
+
+@inproceedings{bevendorff2023empirical,
+  author    = {Bevendorff, Janek and Gupta, Sanket and Kiesel, Johannes and Stein, Benno},
+  title     = {An Empirical Comparison of Web Content Extraction Algorithms},
+  booktitle = {Proceedings of the 46th International ACM SIGIR Conference on Research and Development in Information Retrieval},
+  pages     = {2594--2603},
+  year      = {2023},
+  url       = {https://doi.org/10.1145/3539618.3591920}
+}
+
+@inproceedings{barbaresi2021trafilatura,
+  author    = {Barbaresi, Adrien},
+  title     = {Trafilatura: A Web Scraping Library and Command-Line Tool for Text Discovery and Extraction},
+  booktitle = {Proceedings of the 59th Annual Meeting of the Association for Computational Linguistics: System Demonstrations},
+  pages     = {122--131},
+  year      = {2021},
+  url       = {https://aclanthology.org/2021.acl-demo.15}
+}
+
+@inproceedings{kohlschutter2010boilerplate,
+  author    = {Kohlsch{\"u}tter, Christian and Fankhauser, Peter and Nejdl, Wolfgang},
+  title     = {Boilerplate Detection Using Shallow Text Features},
+  booktitle = {Proceedings of the Third ACM International Conference on Web Search and Data Mining (WSDM)},
+  pages     = {441--450},
+  year      = {2010},
+  url       = {https://doi.org/10.1145/1718487.1718542}
+}
+
+@misc{rfc9309,
+  author       = {Koster, Martijn and Illyes, Gary and Zeller, Henner and Sassman, Lizzi},
+  title        = {Robots Exclusion Protocol},
+  howpublished = {RFC 9309},
+  year         = {2022},
+  url          = {https://www.rfc-editor.org/rfc/rfc9309.html}
+}
+
+% Named in the repo (src/lib/ai_use.ml); spec page checked on 2026-11-11.
+@misc{keller2026vocabulary,
+  author       = {Keller, Paul and Thomson, Martin},
+  title        = {A Vocabulary For Expressing {AI} Usage Preferences},
+  howpublished = {Internet-Draft draft-ietf-aipref-vocab-08, work in progress},
+  year         = {2026},
+  url          = {https://datatracker.ietf.org/doc/draft-ietf-aipref-vocab/}
+}
+
+% Named in the repo (src/lib/ai_use.ml); spec page checked on 2026-11-11.
+@misc{rsl2025really,
+  author       = {{RSL Technical Steering Committee}},
+  title        = {Really Simple Licensing ({RSL}) 1.0 Specification},
+  howpublished = {Recommendation RSL-SPEC-1.0},
+  year         = {2025},
+  url          = {https://rslstandard.org/rsl}
+}
+
+@inproceedings{steinackerolsztyn2026misinformation,
+  author    = {Steinacker-Olsztyn, Nicolas and Gosain, Devashish and Dao, Ha},
+  title     = {Is Misinformation More Open? {A} Study of robots.txt Gatekeeping on the Web},
+  booktitle = {Proceedings of the ACM Web Conference (WWW)},
+  year      = {2026},
+  url       = {https://arxiv.org/abs/2510.10315}
+}
+
+% ---------------------------------------------------------------------------
+% Does context pay
+% ---------------------------------------------------------------------------
+
+@article{goldfarb2011online,
+  author  = {Goldfarb, Avi and Tucker, Catherine},
+  title   = {Online Display Advertising: Targeting and Obtrusiveness},
+  journal = {Marketing Science},
+  volume  = {30},
+  number  = {3},
+  pages   = {389--404},
+  year    = {2011},
+  url     = {https://doi.org/10.1287/mksc.1100.0583}
+}
+
+@article{moorman2002effects,
+  author  = {Moorman, Marjolein and Neijens, Peter C. and Smit, Edith G.},
+  title   = {The Effects of Magazine-Induced Psychological Responses and Thematic Congruence on Memory and Attitude toward the Ad in a Real-Life Setting},
+  journal = {Journal of Advertising},
+  volume  = {31},
+  number  = {4},
+  pages   = {27--40},
+  year    = {2002},
+  url     = {https://doi.org/10.1080/00913367.2002.10673683}
+}
+
+@article{zanjani2011does,
+  author  = {Zanjani, Shabnam H. A. and Diamond, William D. and Chan, Kwong},
+  title   = {Does Ad-Context Congruity Help Surfers and Information Seekers Remember Ads in Cluttered E-Magazines?},
+  journal = {Journal of Advertising},
+  volume  = {40},
+  number  = {4},
+  pages   = {67--84},
+  year    = {2011},
+  url     = {https://doi.org/10.2753/JOA0091-3367400405}
+}
+
+@article{dahlen2008could,
+  author  = {Dahl{\'e}n, Micael and Rosengren, Sara and T{\"o}rn, Fredrik and {\"O}hman, Niclas},
+  title   = {Could Placing Ads Wrong Be Right? Advertising Effects of Thematic Incongruence},
+  journal = {Journal of Advertising},
+  volume  = {37},
+  number  = {3},
+  pages   = {57--67},
+  year    = {2008},
+  url     = {https://doi.org/10.2753/JOA0091-3367370305}
+}
+
+@article{kwon2019impact,
+  author  = {Kwon, Eun Sook and King, Karen Whitehill and Nyilasy, Greg and Reid, Leonard N.},
+  title   = {Impact of Media Context on Advertising Memory: A Meta-Analysis of Advertising Effectiveness},
+  journal = {Journal of Advertising Research},
+  volume  = {59},
+  number  = {1},
+  pages   = {99--128},
+  year    = {2019},
+  url     = {https://doi.org/10.2501/JAR-2018-016}
+}
+
+@inproceedings{li2010contextual,
+  author    = {Li, Lihong and Chu, Wei and Langford, John and Schapire, Robert E.},
+  title     = {A Contextual-Bandit Approach to Personalized News Article Recommendation},
+  booktitle = {Proceedings of the 19th International Conference on World Wide Web},
+  year      = {2010},
+  url       = {https://arxiv.org/abs/1003.0146}
+}

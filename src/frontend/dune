@@ -1,0 +1,10 @@
+(dirs :standard \ node_modules dist)
+
+(melange.emit
+ (target app)
+ (alias frontend)
+ (libraries reason-react)
+ (preprocess
+  (pps melange.ppx reason-react-ppx))
+ (module_systems
+  (es6 mjs)))

@@ -1,0 +1,55 @@
+# Secrets (OpenRouter key)
+.env
+
+# Build output
+_build/
+node_modules/
+src/frontend/dist/
+
+# Crawled publisher pages: their text is not ours to publish
+src/store/
+
+# Downloaded by src/fetch-data.sh (models: data/NOTICE); the taxonomy, the
+# lexicon files and the SigLIP 2 taxonomy prototypes
+# (src/stubs/tools/siglip_prototypes.py) are ours. The golden sample and its
+# labels are drawn from your own traffic, so they stay private; the
+# .example.tsv files show the format with made-up pages
+src/data/*
+!src/data/lexicon.tsv
+!src/data/lexicon_candidates.tsv
+!src/data/golden_sample.example.tsv
+!src/data/golden_labels.example.tsv
+!src/data/siglip2_prototypes.gguf
+!src/data/content_taxonomy_3.1.tsv
+!src/data/NOTICE
+!src/data/licenses/
+
+# Docusaurus build output
+docs/build/
+docs/.docusaurus/
+src/stubs/warc_ffi/target/
+
+# Private: the working notes (TODO.md; open work is in ROADMAP.md), and
+# scripts and studies on your own bid logs and deals. Each script has a
+# published twin, <name>.example.<ext>, to copy and adapt
+/TODO.md
+deploy/traffic.sh
+deploy/coverage.sh
+deploy/golden.sh
+deploy/pages.sh
+deploy/reach.sh
+deploy/budgets.sh
+deploy/dv_normalize.sql
+deploy/reach_report.py
+deploy/budget_report.py
+deploy/context_fit.py
+study/pages.md
+study/reach.md
+study/revenue.md
+study/supply.md
+docs/presentations/
+
+# Paper build scratch (paper/out holds the PDF)
+paper/.check/
+paper/check-*.tex
+paper/.arxiv/

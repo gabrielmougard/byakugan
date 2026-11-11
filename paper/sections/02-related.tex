@@ -1,0 +1,79 @@
+% 02-related
+\section{Related work}\label{sec:related}
+
+\sys{} sits where several lines of work meet: contextual advertising, hierarchical classification, classifier cascades, LLM labelling, crawling, and advertising research on whether context pays. We take them in turn and end with a comparison (\cref{tab:related-compare}).
+
+\subsection{Contextual advertising and page classification}\label{sec:related-ctx}
+
+Early contextual advertising was a retrieval problem. \citet{ribeironeto2005impedance} named the vocabulary gap between pages and ads and showed that requiring an ad's keywords to appear on the page raised average precision by 60\% over plain cosine matching. \citet{broder2007semantic} classified pages and ads into a 6,000-node taxonomy and blended a taxonomy score with a lexical cosine, backing off through the lowest common ancestor; precision rose by about 25\% at mid recall. Our matcher keeps that shape (\cref{sec:serving}). Later work learned the match from clicks \citep{chakrabarti2008contextual}, learned when to show no ad at all \citep{broder2008swing}, and advertised only next to positive or neutral content \citep{fan2010sentiment}, an early form of brand suitability.
+
+Two results shape our cheapest tiers. \citet{anagnostopoulos2007just} found that a short summary of a page (URL, title, meta tags, top headings and the first 500 bytes, about 5\% of the page) keeps 97 to 99\% of the matching relevance of the full text. The URL alone goes a long way: \citet{kan2005fast} reached 76\% accuracy from the URL against 78\% from the full text, and \citet{baykan2011comprehensive} report precision above 90\% at 30 to 40\% recall. Most pages can therefore be labelled from their head and a few free signals.
+
+Recent work turns to video. ContextIQ \citep{chaubey2025contextiq} indexes it with one expert per modality and late fusion, and matches jointly trained models on retrieval benchmarks, but publishes no latency or cost. Commercial contextual and verification vendors describe classification of text, images and video at large scale; none of the public material we reviewed reports per-URL accuracy or shows per-page explanations. \sys{} departs from this line in what it optimises. The classical systems run one fixed pipeline on every page, while \sys{} decides per page how much to spend and keeps the evidence behind every label.
+
+\subsection{Hierarchical labels and LLM labelling}\label{sec:related-hier}
+
+\sys{} labels pages with \iab{} \citep{iabtechlab2024content}: 704 nodes in a forest of up to four tiers. One root, Sensitive Topics, has 11 children carried over from the brand-safety categories of the Global Alliance for Responsible Media, which closed in 2024, so topics and suitability share one label space. We score against gold with hierarchical precision and recall over ancestor closures (\hP, \hR, \hF; \cref{sec:eval}). A flat metric would treat ``Sports'' for a ``Soccer'' page like a wrong branch, although a deal that targets Sports is served correctly. The same closure lets serving skip the tree: a profile carries every label's ancestors, so a rule on a parent node is a lookup of one identifier.
+
+Asking an LLM to choose from such a taxonomy works poorly. Ten LLMs prompted zero-shot with the IAB 2.2 taxonomy reached 34\% accuracy and 41\% F1 on average, and often returned more categories than human annotators \citep{kamen2025order}. TELEClass \citep{zhang2025teleclass} reports the same weakness: a large, structured label space does not fit well in a prompt. A 704-way prompt is long, asks the model to separate many near-synonymous nodes at once, and invites identifiers that are not on the list. Retrieval proposes candidates better. The IAB Tech Lab's reference classifier \citep{iabtechlab2026iab} assigns the nearest label embedding with 75\% top-1 and 94.5\% top-5 accuracy on 704 synthetic pages. \sys{} therefore lets its cheaper tiers build a shortlist of 12 labels and asks the LLM only to rerank it. On real pages the shortlist is the limit: it holds 65\% of our gold labels (\cref{sec:eval}).
+
+LLMs are good labellers, though. ChatGPT beat crowd workers by about 25 points at about a thirtieth of the cost \citep{gilardi2023chatgpt}, and distilling LLM labels into small models is now common. WebOrganizer \citep{wettig2025organize} distils them into a 140M-parameter encoder with URL features that agrees with its teacher on 93.5\% of topics. The FineWeb-Edu classifier \citep{huggingfacefw2024fineweb} trains a linear head over a frozen embedding on 450,000 labels from Llama-70B and reaches an F1 of 0.82. TELEClass instead uses the LLM to enrich each node with class-indicative terms and trains a cheap classifier from them; our lexicon follows it, with terms proposed per node and language and then reviewed (\cref{sec:cascade}). A distilled 704-way head is planned (\cref{sec:discussion}).
+
+\subsection{Cascades, deferral and calibration}\label{sec:related-cascade}
+
+A cascade runs a cheap model first and defers hard inputs to a costlier one. Selective classification \citep{geifman2017selective} is the one-model version: abstain when confidence falls under a threshold chosen for a target risk. Our accept and reject thresholds play that role for each label. With LLMs, cascades became a cost tool. FrugalGPT \citep{chen2024frugalgpt} escalates along a chain of LLM APIs with a learned scorer, for savings of up to 98\% at 2023 prices, and \citet{gupta2024language} show that a learned deferral rule beats thresholds on the maximum probability. Online cascade learning \citep{nie2024online} is the closest blueprint for a stream of pages: logistic regression, a BERT-sized model and an LLM, with the small models learning to imitate the LLM as the stream goes by. It saves 70 to 90\% of LLM cost on easy tasks but only 17 to 30\% on hard ones. Students can be retrained on the escalations themselves \citep{ramirez2024cache}, disagreement inside a tier is a useful signal to defer \citep{kolawole2025agreement}, and good quality estimates matter more than clever routers \citep{dekoninck2025unified,li2026llmrouterbench}.
+
+\sys{} differs from these cascades in three ways. Its tiers read different evidence (the URL, the text, the images), not only larger models over the same input. Its stopping rule is defined over a set of labels in a taxonomy rather than one answer. Its budget is set per page from what the page is worth to the bidder, so a long-tail URL and a busy article get different depths by design (\cref{sec:cascade}).
+
+Comparing tiers against shared thresholds requires scores that mean the same thing. Platt scaling fits a logistic map $\sigma(ax+b)$ from a raw score to a probability; temperature scaling \citep{guo2017calibration} divides a network's logits by one fitted constant, and the same work measures the result by the expected calibration error (ECE) over equal-width bins. \sys{} uses Platt maps for its cosines and image logits and a temperature for the LLM's confidences (\cref{sec:cascade}). Conformal methods go further and bound the rate of missed labels for a chosen threshold \citep{bates2021distribution,angelopoulos2024conformal,angelopoulos2021learn}, also with many classes \citep{ding2023class}; they hold only against the gold set used to calibrate, and in \sys{} they are planned work.
+
+\subsection{Static embeddings and images}\label{sec:related-emb}
+
+Model2Vec \citep{tulkens2024model2vec} distils a sentence transformer into one vector per token, so embedding a text is a table lookup and a mean. Its authors report MTEB classification scores of 70.3 to 71.7, above all-MiniLM-L6 at 69.3, at up to 500 times the CPU speed; we run two such models in C (\cref{sec:impl}). CLIP \citep{radford2021learning} made zero-shot image classification against text prompts practical, and SigLIP 2 \citep{tschannen2025siglip} extends it to many languages; \sys{} scores images against every taxonomy node with it. For topics, images matter less than one might expect. On N24News \citep{wang2022n24news}, adding the image lifted accuracy from 88.9 to 91.1\% with the full article, but from 72.0 to 79.4\% with the headline alone. Images help when the text is thin, so \sys{} sends only images without usable alt text to its image tier, and only while a page is in doubt.
+
+\subsection{Faithful explanations}\label{sec:related-explain}
+
+An LLM's stated reasons are not a reliable account of how it decided. Chain-of-thought explanations leave out a biasing feature of the prompt even when it changes the answer, with accuracy drops of up to 36\% \citep{turpin2023language}, and reasoning models often mention the hints they use in fewer than 20\% of cases \citep{chen2025reasoning}. Explanations hold up better when outputs pass through named concepts \citep{sun2025concept}, when removing the evidence lowers confidence \citep{deyoung2020eraser}, and when claims can be attributed to a source \citep{rashkin2023measuring}. \sys{} takes the concept route with the taxonomy as its concept set. Every label carries evidence records (tier, zone, quote, reason, weight). Quotes from the lexical and dense tiers are page text by construction; the LLM's quotes are matched against the normalised page text, and a quote that is not found halves the label's confidence (\cref{sec:cascade}).
+
+\subsection{Crawling, freshness and publisher preferences}\label{sec:related-crawl}
+
+Mercator \citep{heydon1999mercator} kept one queue per host and 64-bit fingerprints to skip duplicates; our frontier keeps one schedule per origin in shared state, so that replicas stay polite together. \citet{cho2003effective,cho2003estimating} estimated each page's rate of change and argued against chasing pages that change faster than they can be revisited. Our refresh rule follows them: articles are fetched often while young and less often later, and hubs such as home pages are served from their section instead. Sitemaps aid discovery \citep{schonfeld2009sitemaps}. For change detection we use SimHash \citep{charikar2002similarity}: 64-bit fingerprints with a Hamming threshold of 3 find near-duplicates among 8 billion pages \citep{manku2007detecting}. \sys{} uses that fingerprint and threshold twice, to skip reclassifying an unchanged page and to match the blocks a browser reports around a slot to the blocks the crawler labelled. For extraction, heuristic methods such as Trafilatura \citep{barbaresi2021trafilatura} and Boilerpipe \citep{kohlschutter2010boilerplate} beat neural ones, with mean F1 of 0.883 and 0.834 against 0.738 for plain HTML-to-text \citep{bevendorff2023empirical}.
+
+RFC 9309 \citep{rfc9309} standardises robots.txt: the longest matching rule wins, a 4xx status allows everything and a 5xx status disallows everything. Newer signals say what a page may be used for. The IETF aipref vocabulary \citep{keller2026vocabulary} defines ``AI use'' as input to a generative model, and its definition of a generative model excludes models used for classification, ranking or scoring. An LLM that labels pages sits on that boundary, so \sys{} reads it conservatively. RSL 1.0 \citep{rsl2025really} publishes licences through robots.txt, HTTP headers and HTML, folds Cloudflare's Content Signals into its usage vocabulary, and asks for a conservative reading. About 60\% of reputable sites block at least one AI crawler \citep{steinackerolsztyn2026misinformation}. \sys{} gates only its LLM tier on these signals; the other tiers run on its own CPUs and send no page text out.
+
+\subsection{Context, format and suitability}\label{sec:related-effect}
+
+The evidence that congruent context helps is mixed. Congruent magazine ads were remembered better \citep{moorman2002effects}; congruence helped readers looking for information but not casual browsers \citep{zanjani2011does}; incongruent placements were sometimes processed more \citep{dahlen2008could}; and a meta-analysis finds that context affects memory while the overall picture stays mixed \citep{kwon2019impact}. For us the key result is that contextual targeting and obtrusive formats each raised purchase intent, but not together \citep{goldfarb2011online}. Many high-impact formats are obtrusive by design, so the effect of context should depend on the format. \sys{} therefore computes context per slot and per format (\cref{sec:boundary}), and our test protocol crosses context with format (\cref{sec:protocol}). Suitability is treated apart from relevance: relevance blends the page with the content near the slot, while suitability takes the worst case over everything on screen with the ad, so a sensitive headline in a widget is never averaged away. Learning the match from engagement adds further gains \citep{chakrabarti2008contextual,li2010contextual}; in \sys{} it is planned.
+
+\subsection{Where this work sits}\label{sec:related-position}
+
+No line of work above covers what a bidder needs. Retrieval systems matched pages well but spent the same on every page. LLM cascades spend adaptively, but on one answer per query and with no evidence from a page. Distilled classifiers are cheap but run the same model on every input. None of them looks at the slot, and few have a path for a page that appeared a minute ago. \Cref{tab:related-compare} sums this up.
+
+\DeclareRobustCommand{\relyes}{\tikz[baseline=-0.6ex]\fill[ink] (0,0) circle (0.95mm);}
+\DeclareRobustCommand{\relpart}{\tikz[baseline=-0.6ex]{\fill[ink] (0,-0.95mm) arc (-90:90:0.95mm) -- cycle; \draw[ink,line width=0.45pt] (0,0) circle (0.95mm);}}
+\DeclareRobustCommand{\relno}{\tikz[baseline=-0.6ex]\draw[ink,line width=0.45pt] (0,0) circle (0.95mm);}
+\DeclareRobustCommand{\relna}{\textcolor{ink!45}{--}}
+
+\begin{table}[t]
+\centering
+\small
+\renewcommand{\arraystretch}{1.2}
+\newcolumntype{C}{>{\centering\arraybackslash}p{1.42cm}}
+\begin{tabularx}{\linewidth}{@{}>{\raggedright\arraybackslash}X CCCCCC@{}}
+\toprule
+Family of approaches & Budget per page & Evidence per label & Slot-level context & Fresh pages & No user data & Open stack \\
+\midrule
+Contextual retrieval and matching \citep{broder2007semantic,anagnostopoulos2007just,chakrabarti2008contextual} & \relno & \relpart & \relno & \relpart & \relyes & \relna \\
+URL-only classifiers \citep{kan2005fast,baykan2011comprehensive} & \relno & \relno & \relno & \relyes & \relyes & \relna \\
+Zero-shot LLM labelling \citep{kamen2025order} & \relno & \relpart & \relna & \relna & \relna & \relna \\
+LLM cascades and routers \citep{chen2024frugalgpt,nie2024online,dekoninck2025unified} & \relpart & \relno & \relna & \relna & \relna & \relna \\
+Distilled small classifiers \citep{wettig2025organize,huggingfacefw2024fineweb,zhang2025teleclass} & \relno & \relno & \relna & \relna & \relna & \relyes \\
+Multimodal expert retrieval \citep{chaubey2025contextiq} & \relno & \relpart & \relpart & \relna & \relyes & \relna \\
+Commercial contextual vendors, public material & \relna & \relno & \relna & \relna & \relna & \relno \\
+\midrule
+\sys{} (this paper) & \relyes & \relyes & \relyes & \relyes & \relyes & \relyes \\
+\bottomrule
+\end{tabularx}
+\caption{Where \sys{} sits. \relyes{} provided, \relpart{} in part, \relno{} not provided, \relna{} outside the family's scope or not reported. Read the last row against the others: no other family pairs a per-page budget with evidence that can be checked against the page and with context at the slot. Cells summarise the cited descriptions, not our own tests. Part credits: just-in-time matching labels unseen pages from a summary; cascades adapt cost to confidence, not to the value of the item; LLM rationales are claims rather than evidence \citep{turpin2023language}; ContextIQ works scene by scene. In \sys, \tier{0} to \tier{3} run open models on CPU and \tier{4} calls a hosted LLM.}
+\label{tab:related-compare}
+\end{table}

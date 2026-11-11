@@ -1,0 +1,144 @@
+% a1-wire
+\section{Profile wire format and interfaces}\label{app:wire}
+
+\Cref{lst:wire-proto} is the serving profile the bidder reads
+(\code{src/protos/contextual/v1/profile.proto}), with its comments shortened.
+Two encoding choices matter for size. Scores are 32-bit floats, which is more
+precision than a calibrated score in $[0, 1]$ needs and costs 5 bytes with its
+tag. SimHashes are \code{fixed64}: a hash is close to uniform over 64 bits, and a
+varint of such a value takes 9 or 10 bytes, where a fixed field always takes
+8. The Go reader skips any field it does not know, so fields can be added
+without a coordinated release.
+
+\begin{lstlisting}[caption={The serving profile, \code{contextual.v1.PageProfile}.},label={lst:wire-proto},captionpos=b,columns=fixed,basewidth=0.5em,keepspaces=true]
+syntax = "proto3";
+package contextual.v1;
+
+// A page's profile under contextual:<sha256(normalised URL)>. The same message
+// under contextual:section:<sha256(prefix)> is a top section's or a site's
+// profile: the mean of its crawled pages' scores, from 5 pages on, no keywords.
+message PageProfile {
+  // IAB Content Taxonomy 3.1 (cattax 9) ids, highest score first, calibrated
+  // to [0, 1], at most 20. Every label's ancestors are in the list too, with
+  // at least its score: a category matches when its own id is here.
+  repeated Label labels = 1;
+  repeated string keywords = 2;  // at most 20, most salient first
+  int64 fetched_at = 3;          // Unix seconds
+  string preset = 4;             // the cascade depth the labels come from: "rich"
+  string version = 5;            // pipeline version, for logs and audits
+  // Labelled blocks in document order, at most 64: what a slot's own context
+  // is made of (ortb2Imp.ext.data.ctx). No text, only its SimHash.
+  repeated Block blocks = 6;
+  // Ad containers and where each sits: a slot's surroundings when the bid
+  // request carries no ext.data.ctx.
+  repeated AdSlot ad_slots = 7;
+}
+
+message AdSlot {
+  string id = 1;   // the container's element id: the part of a GPID after its last #
+  float top = 2;   // the bottom of the block before it, viewports from the top
+}
+
+message Block {
+  fixed64 simhash = 1;        // of its words: a rendered block is this one
+                              // when at most 3 bits differ
+  bool main = 2;              // main content; false for navigation, widgets, comments
+  repeated Label labels = 3;  // its best labels (at most 8), ancestors included
+  float top = 4;              // its middle, viewports from the top, as estimated
+}
+
+message Label {
+  string id = 1;     // IAB Content Taxonomy 3.1 unique id
+  float score = 2;   // in [0, 1]
+}
+\end{lstlisting}
+
+The crawlers and online servers share one store, Valkey in the lab
+(\cref{tab:wire-keys}). Every multi-key step of the crawl frontier is one Lua
+script, so it is atomic across replicas. Only the two \code{contextual:} key
+families are meant for the bidder. Everything under \code{ctx:} is the lab's
+own state.
+
+\begin{table}[ht]
+\centering
+\caption{Key families in the shared store (\code{src/serve/lab.ml}). Expiries
+  are given where a key has one.}
+\label{tab:wire-keys}
+\footnotesize
+\begin{tabularx}{\linewidth}{@{}l l >{\raggedright\arraybackslash}X@{}}
+\toprule
+Key & Type & Holds\\
+\midrule
+\multicolumn{3}{@{}l}{\emph{Read by the bidder}}\\
+\code{contextual:<sha256>} & string & the page's \code{PageProfile}; 30 days\\
+\code{contextual:section:<sha256(prefix)>} & string & a top section's or site's mean \code{PageProfile}, from 5 pages; 30 days\\
+\midrule
+\multicolumn{3}{@{}l}{\emph{Crawl frontier and politeness}}\\
+\code{ctx:seen} & set & normalised URL keys ever queued\\
+\code{ctx:frontier:<origin>} & sorted set & URLs waiting for that origin, scored by minus their bid requests per day\\
+\code{ctx:hosts} & sorted set & origins with work, scored by their earliest next fetch\\
+\code{ctx:hints} & hash & URL to its sitemap hints, while queued\\
+\code{ctx:inflight} & hash & URL to its origin, claim time and frontier score\\
+\code{ctx:stats}, \code{ctx:recent} & hash, list & counters and LLM spend; the last 100 outcomes\\
+\code{ctx:replicas}, \code{ctx:crawled\_by} & sorted set, hash & crawler heartbeats; pages crawled per crawler\\
+\midrule
+\multicolumn{3}{@{}l}{\emph{Profiles, sections and refresh}}\\
+\code{ctx:profile:<key>} & string & the lab's full profile, JSON, zstd-compressed\\
+\code{ctx:profiles} & sorted set & profile keys by fetch time, for incremental reloads\\
+\code{ctx:summary} & hash & key to a page summary with its served labels\\
+\code{ctx:section:<prefix>} & hash & \code{\#pages} and the sum of the pages' served scores per label\\
+\code{ctx:fresh}, \code{ctx:refresh} & hash, sorted set & refresh state per page; when to fetch it again\\
+\code{ctx:requests} & hash & key to the latest known bid requests per day\\
+\code{ctx:slotmap:<version>:<template>} & hash & ad container and page to main blocks before it; 30 days\\
+\midrule
+\multicolumn{3}{@{}l}{\emph{Archives, caches and the golden set}}\\
+\code{ctx:warc}, \code{ctx:warcfile:<f>} & hash, set & where each page's raw WARC record is\\
+\code{ctx:robots:<origin>} & string & robots.txt body; 24 hours\\
+\code{ctx:license:<url>} & string & an RSL document, for its \code{max-age}\\
+\code{ctx:image:<patches>:<sha256(src)>} & string & a SigLIP 2 image embedding, float32; 30 days\\
+\code{ctx:adjudication} & hash & URL to its golden-set judgement\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+Both daemons speak JSON over HTTP (\cref{tab:wire-http}). Errors come back as
+\code{\{"error": "..."\}}, with status 400 for bad input and 404 for unknown
+pages or routes. The online server proxies every \code{/crawler/*} path to the
+crawl daemon, so the front end talks to one origin. \code{level} is one of the
+four presets, \preset{standard} by default, and \code{format} is one of the
+five classes of \cref{tab:boundary-formats}, \code{scroll-through} by default.
+
+\begin{table}[ht]
+\centering
+\caption{HTTP endpoints of the crawl daemon and the online server
+  (\code{docs/guide/api.md}).}
+\label{tab:wire-http}
+\footnotesize
+\begin{tabularx}{\linewidth}{@{}l >{\raggedright\arraybackslash}X@{}}
+\toprule
+Endpoint & What it does\\
+\midrule
+\multicolumn{2}{@{}l}{\emph{Crawl daemon, port 8081}}\\
+\code{POST /crawl} & queue pages (\code{url}, \code{urls}, \code{force}, \code{requests}) or discover a site from its sitemaps (\code{site}, \code{max\_pages})\\
+\code{POST /traffic} & queue the pages the bidder sees most, one \code{url<TAB>requests per day} line each, busiest first\\
+\code{POST /coverage} & the same lines; how much of that traffic lands on pages with a profile\\
+\code{POST /sections} & add pages stored before section profiles existed to the running sums\\
+\code{GET /status} & queue, in flight, stored, live replicas, the last 100 outcomes, LLM calls and spend\\
+\code{GET /pages} & one summary per stored profile\\
+\code{GET /inspect?url=} & the stored profile and the cascade trace for each preset\\
+\code{GET /record?url=} & the page's latest raw record, if this replica archived it\\
+\code{POST /replay} & classify this replica's archived pages again, without fetching\\
+\midrule
+\multicolumn{2}{@{}l}{\emph{Online server, port 8080}}\\
+\code{GET /api/pages?level=} & every crawled page with its top labels at that level\\
+\code{GET /api/page?url=} & one page: levels, labels with evidence, segments with positions, gold labels\\
+\code{POST /api/placement} & slot odds for a creative described in words on one page, with backoff to section or site and optional measured geometry\\
+\code{POST /api/outreach} & the pages whose best slot reaches a fit threshold, with a histogram and a table per site\\
+\code{GET /replay?url=} & the archived page, made safe to frame: scripts, objects and frames forbidden\\
+\code{GET}, \code{POST}, \code{DELETE /api/adjudication} & read, save or forget a page's golden-set judgement\\
+\code{GET /api/adjudication.tsv} & every judgement\\
+\code{GET /api/golden} & each level's hierarchical agreement with the judgements\\
+\code{GET /api/taxonomy?q=} & up to 20 categories whose path contains \code{q}\\
+\bottomrule
+\end{tabularx}
+\end{table}

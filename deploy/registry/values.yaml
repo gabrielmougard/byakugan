@@ -1,0 +1,11 @@
+image: registry:3.0.0
+
+nodePort: 30500
+
+storage:
+  size: 10Gi
+  storageClass: local-path
+
+resources:
+  requests: { cpu: 50m, memory: 64Mi }
+  limits: { memory: 256Mi }

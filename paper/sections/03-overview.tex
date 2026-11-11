@@ -1,0 +1,219 @@
+% 03-overview
+\section{System overview}\label{sec:overview}
+
+\sys{} has two halves joined by a key-value store. The offline half finds pages, fetches them politely and writes one profile per page. The online half reads that profile inside the bid and decides whether a deal may take the request. We state what a bidder needs, walk through the architecture (\cref{fig:overview-arch}), follow one page, and open a profile (\cref{fig:overview-profile}).
+
+\subsection{What a bidder needs from page context}\label{sec:overview-req}
+
+A bidder that buys on context needs to know, for each bid request, what is on the page and near the slot. The answer must meet six requirements, which later sections refer back to.
+
+\begin{enumerate}[label=\textbf{R\arabic*},leftmargin=2.4em,itemsep=2pt]
+\item\label{req:latency} \emph{A lookup well under a millisecond.} The check runs inside the bid, next to the bidder's other per-URL lookups. It may cost one key-value read and a few microseconds of work, and a missing profile must never hold up the bid.
+\item\label{req:cost} \emph{Cost that follows value.} A bidder sees millions of distinct pages a day, yet a small head of busy pages carries most of the bid requests. The same spend on every page wastes money on the tail or starves the head.
+\item\label{req:fresh} \emph{Fresh pages within the hour.} A large share of a day's bid requests is on pages with no request in the previous week. A busy new page gets little of its traffic in the hour of its first request but most of it within a day. A profile ready the next morning misses most of its value; one ready within the hour misses little.
+\item\label{req:explain} \emph{Explanations.} When a deal refuses a page, a trader must be able to read why, and an auditor must be able to check the reason against the page.
+\item\label{req:sensitive} \emph{Sensitive Topics.} Suitability is judged on everything a reader sees with the ad, and a sensitive signal is never averaged away by the benign text around it.
+\item\label{req:nouser} \emph{No user data.} Context comes from the page and the slot. No cookie, user identifier or browsing history enters a profile or a decision.
+\end{enumerate}
+
+Publishers add two constraints of their own. The crawler must follow robots.txt, and page text may go to a generative model only when the publisher's AI-use preferences allow it.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[x=1cm,y=1cm,font=\scriptsize]
+\tikzset{
+  ovbox/.style={box,font=\scriptsize,fill=white,text width=#1,minimum height=9mm,inner sep=2.5pt},
+  ovbox/.default=2.3cm,
+  ovstore/.style={store,font=\scriptsize,fill=white,text width=#1,minimum height=12mm,inner sep=1.5pt},
+  ovstore/.default=2.3cm,
+  ovtier/.style={box,font=\scriptsize,draw=#1,fill=#1!18,line width=0.7pt,text width=3.15cm,
+    minimum height=5.6mm,inner sep=2pt,align=left},
+  ovlabel/.style={font=\footnotesize\bfseries,text=ink},
+  ovgroup/.style={draw=ink!45,dashed,rounded corners=3pt,inner sep=4pt},
+  ovstep/.style={-{Stealth[length=1.3mm]},semithick,draw=ink},
+  ovnote/.style={note,font=\scriptsize\itshape},
+}
+
+% ---------------- online path ----------------
+\node[ovbox] (req)  at (1.35,0)  {\textbf{Bid request}\\page URL, slot,\\nearby blocks};
+\node[ovbox] (look) at (4.55,0)  {\textbf{Profile lookup}\\page, section,\\then site};
+\node[ovbox] (slot) at (7.75,0)  {\textbf{Slot context}\\blocks matched\\by SimHash};
+\node[ovbox] (rule) at (10.95,0) {\textbf{Deal rule}\\blocks, targets,\\Sensitive Topics};
+\node[ovbox] (bid)  at (14.15,0) {\textbf{Bid, or refusal}\\with the label\\that decided};
+\node[ovbox,fill=soft] (mod) at (1.35,1.65) {\textbf{Reader's page}\\with the page module};
+\foreach \a/\b in {req/look,look/slot,slot/rule,rule/bid} \draw[arrow] (\a) -- (\b);
+\draw[arrow] (mod) -- (req);
+\node[ovnote,anchor=west] at (2.65,0.86) {SimHash and offset of the 12 blocks nearest each slot; no page text};
+\node[ovlabel,anchor=north east] (onl) at (15.35,2.15) {Online path, inside the bid};
+\node[ovnote,anchor=north east] at (15.35,1.78) {one read per level, microseconds of work};
+
+% ---------------- profile store ----------------
+\node[ovstore] (serv) at (4.55,-2.6)  {Serving profiles\\protobuf, 252\,B,\\30-day expiry};
+\node[ovstore] (agg)  at (8.35,-2.6)  {Section and site\\aggregates,\\from 5 pages};
+\node[ovlabel,align=center] (storel) at (11.25,-2.6) {Profile store\\(Valkey)};
+\node[ovstore] (full) at (14.15,-2.6) {Stored profiles\\(zstd JSON) and\\WARC archive};
+
+\draw[arrow] (look.south) -- (serv.north);
+\draw[arrow] ([xshift=8mm]look.south) |- (8.35,-1.2) -- (agg.north);
+\node[ovnote,anchor=south west] at (5.5,-1.17) {on a miss, one more read};
+
+% ---------------- offline path ----------------
+\node[ovbox] (d1) at (1.35,-5.15) {\textbf{Crawl requests}\\on bidder misses};
+\node[ovbox] (d2) at (1.35,-6.70) {\textbf{News sitemaps}\\last 48\,h, read\\every 10 minutes};
+\node[ovbox] (d3) at (1.35,-8.25) {\textbf{Request logs}\\bid requests\\per page and day};
+\draw[dashedarrow] ([xshift=-8mm]look.south) |- (0.6,-1.2) -- ([xshift=-7.5mm]d1.north);
+\node[ovnote,anchor=west,align=left] at (0.72,-2.55) {no page profile:\\crawl request,\\never blocks};
+
+\node[ovstore=1.85cm,minimum height=21mm] (front) at (4.25,-6.70) {\textbf{Shared}\\\textbf{frontier}\\one queue per\\origin, busiest\\first};
+
+\node[ovbox=2.2cm] (c1) at (7.09,-5.15) {\textbf{Claim origin}\\robots.txt, fetch\\with validators};
+\node[ovbox=2.2cm] (c2) at (7.09,-6.70) {\textbf{Extract}\\zones, blocks,\\ad slots, SimHash};
+\node[ovbox=2.2cm] (c3) at (7.09,-8.25) {\textbf{AI-use gate}\\decides whether\\\tier{4} may read};
+\node[ovlabel] (cl) at (7.09,-4.22) {Crawler replicas};
+
+\node[ovtier=tzero]  (t0) at (10.63,-4.90) {\tier{0}\enspace URL and hints};
+\node[ovtier=tone]   (t1) at (10.63,-5.73) {\tier{1}\enspace lexicon, 7 zones};
+\node[ovtier=ttwo]   (t2) at (10.63,-6.56) {\tier{2}\enspace static embeddings};
+\node[ovtier=tthree] (t3) at (10.63,-7.39) {\tier{3}\enspace images, video titles};
+\node[ovtier=tfour]  (t4) at (10.63,-8.22) {\tier{4}\enspace LLM reranks top 12};
+\node[ovlabel] (casl) at (10.63,-4.22) {Cascade, at each level};
+\foreach \a/\b in {t0/t1,t1/t2,t2/t3,t3/t4} \draw[ovstep] (\a.south) -- (\b.north);
+
+\node[ovbox] (wr) at (14.15,-6.56) {\textbf{Profile writer}\\profile, serving\\key, section sums};
+
+\begin{scope}[on background layer]
+  \node[ovgroup,fit=(cl)(c1)(c3)] (cgrp) {};
+  \node[ovgroup,fit=(casl)(t0)(t4)] (casc) {};
+\end{scope}
+
+\draw[arrow] (d1.east) -- (front.145);
+\draw[arrow] (d2.east) -- (front.west);
+\draw[arrow] (d3.east) -- (front.215);
+\draw[arrow] (front.east) -- ++(0.25,0) |- (c1.west);
+\draw[arrow] (c1) -- (c2);
+\draw[arrow] (c2) -- (c3);
+\draw[arrow] (c2.east) -- (c2.east -| casc.west);
+\draw[dashedarrow] (c3.east) -- (c3.east -| casc.west);
+\draw[arrow] (casc.east |- wr.west) -- (wr.west);
+\node[ovnote,align=center,anchor=north] at (10.63,-8.80) {next tier only while the page is in doubt\\and the tier fits the page's budget};
+
+% ---------------- lanes ----------------
+\coordinate (offbot) at (0.2,-9.55);
+\begin{scope}[on background layer]
+  \node[draw=accent!40,fill=accent!6,rounded corners=5pt,inner sep=6pt,fit=(mod)(req)(bid)(onl)] (lon) {};
+  \node[draw=ink!30,fill=soft,rounded corners=5pt,inner sep=5pt,fit=(serv)(full)] (lst) {};
+  \node[draw=ink!25,fill=ink!3,rounded corners=5pt,inner sep=6pt,fit=(d1)(d3)(cgrp)(casc)(wr)(offbot)] (loff) {};
+\end{scope}
+\node[ovlabel,anchor=south west] at ([xshift=3pt,yshift=3pt]loff.south west) {Offline path, per page};
+
+\draw[arrow] (wr.north) -- (wr.north |- lst.south);
+\draw[dashedarrow] (front.north |- lst.south) -- (front.north);
+\node[ovnote,anchor=west,align=left] at (4.38,-4.45) {refresh\\schedule};
+\end{tikzpicture}
+\caption{The two paths of \sys. Read the bottom lane left to right: pages enter a shared frontier from three sources, crawler replicas fetch and extract them, and the cascade labels them cheapest tier first, in the tier colours used in every figure. The writer fills the store in the middle, which the online path at the top reads with one key-value read per level. The dashed arrows close the loops: a profile miss becomes a crawl request, the refresh schedule sends pages with traffic back to the frontier, and the AI-use gate decides only whether \tier{4} may read the page.}
+\label{fig:overview-arch}
+\end{figure}
+
+\subsection{Architecture}\label{sec:overview-arch}
+
+The offline path is a set of crawler replicas that keep all their state in Valkey: the frontier, a politeness schedule per origin, the robots.txt and licence caches, and the profiles. Any replica can claim any origin, so the crawl grows by adding replicas. Pages enter the frontier from three sources, each with a count of bid requests per day that orders the queue: crawl requests the bidder publishes when it finds no profile, news sitemaps of busy publishers rescanned every 10 minutes, and daily traffic per page from the request logs. The first two make \ref{req:fresh} reachable (\cref{sec:crawl}). A replica claims an origin once its politeness delay has passed, checks robots.txt, fetches the page with its last validators, and extracts weighted zones, blocks in reading order with a main-content flag, the template's ad containers, and a 64-bit SimHash of the main text. The AI-use gate reads the publisher's aipref preferences, Content Signals and RSL licences; the most restrictive answer decides whether the LLM may see the page.
+
+The cascade runs its tiers cheapest first. \tier{0} reads the URL and sitemap hints without a fetch, \tier{1} matches a reviewed lexicon over the zones, \tier{2} compares static embeddings with taxonomy prototypes, \tier{3} scores images that lack usable alt text with SigLIP 2 and reads video titles, and \tier{4} asks an LLM to rerank a shortlist of 12 labels, quoting the page for each. A page stops once it is settled, with some label confidently in and none in doubt, or once the next tier no longer fits its budget (\cref{sec:cascade}). Each page runs at several levels, which are presets of the same cascade. \preset{zero\_fetch} runs \tier{0} alone, at no cost. \preset{standard} runs \tier{0} to \tier{2} on the CPU within $10^{-5}$ USD. \preset{rich} spends what the page earns, between \preset{standard}'s budget and $5\times10^{-4}$ USD, which buys images and the LLM for busy pages; it is the level the bidder reads. \preset{deep} has $10^{-2}$ USD and freezes nothing, so every tier checks every label again; it serves golden sets and audits.
+
+The writer stores the full profile and a compact serving profile under a key built from the bidder's own URL normalisation, reproduced byte for byte, and adds the page's scores to running sums for its top section and its site; from five pages on, their mean is served under a key of its own. Raw pages are archived as WARC records, so a page can be classified again without a new fetch.
+
+The online path runs inside the bidder through a Go SDK, which reads the page's profile and, on a miss, the section's and then the site's. When a page module runs in the reader's browser, the bid request also carries the fingerprints and offsets of the 12 blocks nearest each slot, and the SDK turns them into the slot's own context (\cref{sec:boundary}). A deal's rule then checks blocks, Sensitive Topics and targets, and returns a verdict with the label that decided it. On an Apple M4 the key and the decoding take 83\,ns each, the rule 9\,ns and the slot context 1.8\,\textmu s, so the network read dominates (\cref{sec:serving}). The SDK is tested against fixtures written by the OCaml side; wiring it into a production bidder is the next step.
+
+\subsection{The life of a page}\label{sec:overview-life}
+
+Take a new article in the football section of a sports daily. Its first bid request finds no page profile, so the bidder backs off to the section, whose mean profile already says Soccer and, through the ancestors, Sports. A deal that targets Sports can take the request at once, and the miss sends a crawl request; if the publisher's news sitemap is watched, the page may already be queued. A replica fetches the page at the origin's next politeness slot and runs every level. As the page has bid traffic, \preset{rich} gets a budget from its request count at assumed rates for impressions and price; a page with a handful of requests a day affords an LLM call. Images are fetched only if a level is still in doubt after the text tiers and can afford one. Once the profile is written, the bidder's lookups hit the page itself.
+
+The page then joins the refresh schedule: every 2 hours for 48 hours after publication, then after a day, with the interval doubling at each unchanged fetch up to 14 days. A 304 response, or a main text whose SimHash moved by at most 3 bits under the same pipeline version, means the page is not classified again; its keys simply live 30 more days. A page whose traffic stops is not fetched again, and its serving key expires after 30 days. Home pages, live blogs and section fronts are not chased: their page key is dropped, the bidder backs off to their section, and they are fetched once a day.
+
+\subsection{Anatomy of a profile}\label{sec:overview-profile}
+
+A profile has two forms (\cref{fig:overview-profile}). The stored profile is for people: the lab, audits and the golden set. It keeps all levels side by side, so a page can be compared at every depth, and every label keeps its evidence. Blocks always keep every Sensitive Topics label above 0.3, because suitability is never cut, and a slot inside an \code{<article>} takes that story as its page. The gate verdict says whether the LLM could read the page, and why. The pipeline version hashes the taxonomy, the lexicon and model files, the calibration, the thresholds, the presets, the image settings and the LLM's name; equal content under an equal version gives equal labels, so an unchanged page is never paid for twice. The serving profile is for the bid. It keeps the labels of \preset{rich} with their ancestors, so a rule on a parent node is a lookup of one identifier, and the labelled blocks without any text, in 252 bytes on average.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[x=1cm,y=1cm,font=\scriptsize]
+\tikzset{
+  pfchip/.style={box,font=\scriptsize,fill=white,inner sep=2.5pt,minimum height=8mm,align=center},
+  pftag/.style={font=\scriptsize\sffamily,text=white,fill=#1,rounded corners=1.5pt,inner sep=1.5pt,
+    minimum width=11mm,align=center},
+  pfblock/.style={draw=ink!70,fill=white,minimum height=5.5mm,inner sep=1pt,font=\scriptsize\ttfamily},
+  pftitle/.style={font=\footnotesize\bfseries,text=ink,anchor=north west},
+  pfnote/.style={note,font=\scriptsize\itshape},
+  pffield/.style={draw=ink!35,fill=white,rounded corners=1.5pt,text width=4.05cm,inner sep=2.5pt,
+    align=left,font=\scriptsize,minimum height=6mm},
+}
+
+% ---------------- stored profile ----------------
+\node[pftitle] (st) at (0.15,0) {Stored profile, one per normalised URL};
+\node[pfchip,text width=3.05cm,anchor=north west] (hd) at (0.25,-0.5)
+  {URL, key, site, title,\\fetch time, keywords};
+\node[pfchip,text width=3.05cm,anchor=north west] (ver) at (3.68,-0.5)
+  {pipeline version\\\code{91ef2fa20641bdfb}};
+\node[pfchip,text width=3.05cm,anchor=north west] (gate) at (7.11,-0.5)
+  {\tier{4} gate: allowed, or\\denied with the reason};
+
+\node[pfchip,text width=2.15cm,anchor=north west] (l0) at (0.25,-1.55) {\preset{zero\_fetch}\\\tier{0} only};
+\node[pfchip,text width=2.15cm,anchor=north west] (l1) at (2.83,-1.55) {\preset{standard}\\\tier{0} to \tier{2}};
+\node[pfchip,text width=2.15cm,anchor=north west,draw=accent,line width=1.1pt] (l2) at (5.41,-1.55) {\preset{rich}\\served};
+\node[pfchip,text width=2.15cm,anchor=north west] (l3) at (7.99,-1.55) {\preset{deep}\\audits only};
+\node[pfnote,anchor=north west] (ln) at (0.25,-2.45) {each level: tiers run, money spent, why it stopped, labels};
+
+% one label with its evidence (prototype test page, deep level)
+\node[draw=ink!50,fill=white,rounded corners=2pt,minimum width=10.6cm,minimum height=2.25cm,anchor=north west] (lab) at (0.25,-2.9) {};
+\node[anchor=north west,font=\footnotesize] at ([xshift=2pt,yshift=-2pt]lab.north west)
+  {\textbf{0.90}\enspace Food \& Drink $>$ Alcoholic Beverages};
+\node[pftag=tone,anchor=west]  (e1) at (0.42,-3.62) {t1 title};
+\node[anchor=west] at (e1.east) {term ``wine'': \emph{``Wine pairing for the big match''}};
+\node[pftag=tone,anchor=west]  (e2) at (0.42,-4.06) {t1 body};
+\node[anchor=west] at (e2.east) {term ``wine'': \emph{``Which red wine goes with a football supper?''}};
+\node[pftag=ttwo,anchor=west]  (e3) at (0.42,-4.50) {t2 semantic};
+\node[anchor=west] at (e3.east) {page cosine 0.88, nearest sentence cosine 1.00};
+\node[pftag=tfour,anchor=west] (e4) at (0.42,-4.94) {t4 llm};
+\node[anchor=west] at (e4.east) {quote verified on page: \emph{``Which red wine goes with a football supper?''}};
+\draw[dashed,ink!50] (l3.south) -- (l3.south |- lab.north);
+
+% blocks in reading order
+\node[pfnote,anchor=north west] (bn) at (0.25,-5.3) {blocks in reading order: main content white, boilerplate grey, one ad container};
+\node[pfblock,minimum width=0.95cm,anchor=north west] (b1) at (0.25,-5.72) {h1};
+\node[pfblock,minimum width=1.7cm,anchor=west] (b2) at ([xshift=1.6mm]b1.east) {p};
+\node[pfblock,minimum width=1.25cm,anchor=west] (b3) at ([xshift=1.6mm]b2.east) {img};
+\node[draw=accent,dashed,thick,fill=accent!8,minimum height=5.5mm,minimum width=0.95cm,anchor=west,font=\scriptsize\ttfamily,inner sep=1pt] (ad) at ([xshift=1.6mm]b3.east) {ad};
+\node[pfblock,minimum width=1.7cm,anchor=west] (b4) at ([xshift=1.6mm]ad.east) {p};
+\node[pfblock,minimum width=1.4cm,anchor=west,fill=ink!12] (b5) at ([xshift=1.6mm]b4.east) {aside};
+\node[pfblock,minimum width=1.4cm,anchor=west] (b6) at ([xshift=1.6mm]b5.east) {p};
+\node[pfchip,text width=9.9cm,anchor=north west,align=left] (bd) at (0.25,-6.6)
+  {one block: \code{p}, main, top 3.4 and height 0.21 viewports, SimHash, story,\\labels: the top 3 topics and every Sensitive Topics label above 0.3};
+\draw[ink!60] (b4.south) -- (b4.south |- bd.north);
+
+\node[pfchip,text width=4.75cm,anchor=north west,align=left] (ads) at (0.25,-7.65)
+  {ad slots: element id and place\\among blocks, learned flag};
+\node[pfchip,text width=4.75cm,anchor=north west,align=left] (sto) at (5.35,-7.65)
+  {stories: labels per \code{<article>}\\with 400+ characters of text};
+\node[pfnote,anchor=north west] (stn) at (0.25,-8.6) {zstd-compressed JSON, 9.3\,KB on average};
+
+% ---------------- serving profile ----------------
+\node[pftitle] (sv) at (11.45,0) {Serving profile};
+\node[pffield,anchor=north west,draw=accent,line width=0.9pt] (f1) at (11.55,-0.5) {\textbf{1}\enspace labels of \preset{rich}: at most 20, ancestors included};
+\node[pffield,anchor=north west] (f2) at ([yshift=-1.4mm]f1.south west) {\textbf{2}\enspace keywords: at most 20};
+\node[pffield,anchor=north west] (f3) at ([yshift=-1.4mm]f2.south west) {\textbf{3}\enspace fetch time};
+\node[pffield,anchor=north west] (f4) at ([yshift=-1.4mm]f3.south west) {\textbf{4}\enspace preset: \preset{rich}};
+\node[pffield,anchor=north west] (f5) at ([yshift=-1.4mm]f4.south west) {\textbf{5}\enspace pipeline version};
+\node[pffield,anchor=north west,draw=accent,line width=0.9pt] (f6) at ([yshift=-1.4mm]f5.south west) {\textbf{6}\enspace blocks, at most 64: SimHash, main flag, up to 8 labels, position; no text};
+\node[pffield,anchor=north west] (f7) at ([yshift=-1.4mm]f6.south west) {\textbf{7}\enspace ad slots: id, position};
+\node[pfnote,anchor=north west,align=left] (svn) at ([yshift=-2mm]f7.south west)
+  {protobuf, 252\,B on average,\\key \code{contextual:<sha256(URL)>},\\30-day expiry};
+
+\begin{scope}[on background layer]
+  \node[draw=ink!40,fill=soft,rounded corners=4pt,inner sep=5pt,fit=(st)(hd)(gate)(lab)(bd)(sto)(stn)] (stbox) {};
+  \node[draw=accent!60,fill=accent!6,rounded corners=4pt,inner sep=5pt,fit=(sv)(f1)(f7)(svn)] (svbox) {};
+\end{scope}
+\draw[-{Stealth[length=2.2mm]},line width=1.2pt,accent] (stbox.east |- bd.north) -- (svbox.west |- bd.north);
+\end{tikzpicture}
+\caption{What a profile holds. Left, the stored profile: all four levels side by side, one label of the \preset{deep} level opened to show its evidence records in the tier colours (a test page of the prototype), and the page's blocks with one block opened. Right, the serving profile the bidder reads, field by field. Look at the two outlined fields: only the labels of \preset{rich} and the blocks, stripped of their text, cross into the bid.}
+\label{fig:overview-profile}
+\end{figure}

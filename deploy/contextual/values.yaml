@@ -1,0 +1,51 @@
+image:
+  registry: localhost:30500
+  repository: contextual
+  tag: dev # deploy.sh sets the git commit
+  pullPolicy: IfNotPresent
+
+# Shared state: frontier, seen-set, politeness schedule, profiles, caches.
+valkey:
+  image: valkey/valkey:9.1.3
+  replicas: 3 # spread one per node where the cluster allows
+  masterName: contextual
+  quorum: 2 # Sentinels that must agree the primary is down
+  maxmemory: 1gb
+  storage: { size: 4Gi, storageClass: local-path }
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { memory: 1536Mi }
+
+crawler:
+  replicas: 3
+  port: 8081
+  workers: 4 # concurrent pages per replica
+  # SigLIP 2 patch budget per image (T3), 0 for no image tier. 256 is the
+  # model's default; 128, the smallest it was trained at, more than halves
+  # the time per image, which slow CPU nodes need.
+  imagePatches: 128
+  # Also store the deep level (its own T4 call, images on every page): for
+  # golden sets and audits, not for coverage.
+  audit: false
+  # OpenRouter model for T4; "" runs without T4. The key is read from this
+  # Secret (deploy.sh creates it from src/.env).
+  llmModel: "" # e.g. z-ai/glm-5.3-flash
+  openrouterSecret: openrouter
+  # Raw pages as WARC, one volume per replica; about 100 KB per page
+  # gzipped. The oldest files go once a replica holds capGiB.
+  warc: { size: 10Gi, capGiB: 8, storageClass: local-path }
+  resources:
+    requests: { cpu: 500m, memory: 256Mi }
+    limits: { memory: 1Gi }
+
+online:
+  replicas: 2
+  port: 8080
+  resources:
+    requests: { cpu: 250m, memory: 256Mi }
+    # The lab holds every profile's labels and evidence in memory, about
+    # 1 GiB per 3,000 profiles: size the limit to the crawl.
+    limits: { memory: 2Gi }
+  ingress:
+    enabled: true
+    host: ""

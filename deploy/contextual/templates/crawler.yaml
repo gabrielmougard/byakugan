@@ -1,0 +1,106 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: crawler
+  labels:
+    {{- include "contextual.labels" . | nindent 4 }}
+    app.kubernetes.io/name: crawler
+spec:
+  # Replicas share the frontier, seen-set and per-origin politeness through
+  # Valkey; a pod stopped mid-crawl has its claims requeued after 2 min.
+  # Each keeps the raw pages it fetched (WARC) on its own volume, under a
+  # stable name (crawler-N) the online server reaches through crawler-headless.
+  serviceName: crawler-headless
+  podManagementPolicy: Parallel
+  replicas: {{ .Values.crawler.replicas }}
+  selector:
+    matchLabels: { app.kubernetes.io/name: crawler }
+  template:
+    metadata:
+      labels:
+        {{- include "contextual.labels" . | nindent 8 }}
+        app.kubernetes.io/name: crawler
+    spec:
+      containers:
+        - name: crawler
+          image: {{ include "contextual.image" (dict "root" . "name" "crawler") }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - --port
+            - {{ .Values.crawler.port | quote }}
+            - --workers
+            - {{ .Values.crawler.workers | quote }}
+            - --valkey
+            - {{ include "contextual.valkey" . }}
+            - --image-patches
+            - {{ .Values.crawler.imagePatches | quote }}
+            {{- if .Values.crawler.audit }}
+            - --audit
+            {{- end }}
+            - --warc
+            - /warc
+            - --warc-cap
+            - {{ .Values.crawler.warc.capGiB | quote }}
+            {{- with .Values.crawler.llmModel }}
+            - --llm
+            - {{ . | quote }}
+            {{- end }}
+          env:
+            {{- include "contextual.valkeyEnv" . | nindent 12 }}
+            {{- if .Values.crawler.llmModel }}
+            - name: OPENROUTER_API_KEY
+              valueFrom:
+                secretKeyRef: { name: {{ .Values.crawler.openrouterSecret }}, key: OPENROUTER_API_KEY }
+            {{- end }}
+          volumeMounts:
+            - { name: valkey-ca, mountPath: /etc/valkey-tls }
+            - { name: warc, mountPath: /warc }
+          ports:
+            - { name: http, containerPort: {{ .Values.crawler.port }} }
+          readinessProbe:
+            httpGet: { path: /status, port: http }
+          livenessProbe:
+            httpGet: { path: /status, port: http }
+            periodSeconds: 20
+            timeoutSeconds: 5
+          securityContext:
+            {{- include "contextual.securityContext" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.crawler.resources | nindent 12 }}
+      securityContext: { fsGroup: 10001 }
+      volumes:
+        - {{- include "contextual.valkeyCA" . | nindent 10 }}
+  volumeClaimTemplates:
+    - metadata:
+        name: warc
+      spec:
+        accessModes: [ReadWriteOnce]
+        storageClassName: {{ .Values.crawler.warc.storageClass }}
+        resources:
+          requests:
+            storage: {{ .Values.crawler.warc.size }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: crawler-headless
+  labels:
+    {{- include "contextual.labels" . | nindent 4 }}
+    app.kubernetes.io/name: crawler
+spec:
+  clusterIP: None
+  selector: { app.kubernetes.io/name: crawler }
+  ports:
+    - { name: http, port: {{ .Values.crawler.port }}, targetPort: http }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: crawler
+  labels:
+    {{- include "contextual.labels" . | nindent 4 }}
+    app.kubernetes.io/name: crawler
+spec:
+  selector: { app.kubernetes.io/name: crawler }
+  ports:
+    - { name: http, port: {{ .Values.crawler.port }}, targetPort: http }

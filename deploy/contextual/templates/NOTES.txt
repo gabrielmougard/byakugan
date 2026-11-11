@@ -1,0 +1,5 @@
+Placement Lab {{ .Values.image.tag }} in namespace {{ .Release.Namespace }}.
+{{- if .Values.online.ingress.enabled }}
+Open http://{{ .Values.online.ingress.host | default "<any node IP>" }}/
+{{- end }}
+T4: {{ .Values.crawler.llmModel | default "off" }}

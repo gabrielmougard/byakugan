@@ -1,0 +1,373 @@
+% 07-serving
+\section{Serving and matching}\label{sec:serving}
+
+The offline path leaves one compact profile per URL. At bid time the bidder
+has to find that profile in one round trip, never wait for a crawl, decide
+whether a deal or a creative may run there, say why, and rank what is left. We
+split the work by language. The OCaml pipeline writes the profiles. The
+bidder, written in Go, reads them through a small SDK. The rules therefore
+exist twice, and both sides are checked against one set of fixtures that the
+OCaml side writes.
+
+\subsection{One key per page}\label{sec:serving-key}
+
+A profile is found by its URL, so both sides must spell a URL the same way. Let
+$\nu(u)$ be the bidder's own URL normalisation, the one it already applies
+before its other per-URL lookups. The key of page $u$ is
+\begin{equation}\label{eq:serving-key}
+\kappa(u) = \texttt{contextual:} \,\|\, \operatorname{hex}\bigl(\operatorname{SHA\text{-}256}(\nu(u))\bigr).
+\end{equation}
+The OCaml side ports $\nu$ byte for byte from Go's \code{net/url} parser. It
+drops the fragment, the scheme and any user information. It unescapes the
+path, removes a leading \code{www.}\ from the host and one trailing slash from
+the path, takes a fixed list of tracking parameters such as \code{utm\_source}
+and \code{fbclid} out of the query, and removes a trailing \code{/amp}. The
+host's case and port are kept. So
+\code{https://www.example.com/news/article/amp?utm\_source=x\&fbclid=y\#top}
+becomes \code{example.com/news/article}. A URL that Go refuses is refused
+here too, so no profile is written under a key the bidder cannot compute. Any
+difference would be a silent miss, so the port is tested on 111 cases written
+by a Go implementation, 16 of them refused, and the Go SDK must recompute the
+other 95 keys exactly.
+
+\subsection{The serving profile}\label{sec:serving-profile}
+
+The value under $\kappa(u)$ is a protobuf message, \code{PageProfile}, with a
+30-day expiry (schema in \cref{app:wire}). It holds the \preset{rich} level's
+labels, at most 20, highest score first; at most 20 keywords; the fetch time;
+the preset's name; and the pipeline version, a hash of the taxonomy, lexicon,
+models, calibration, thresholds and \tier{4} model, for logs and audits. The labels,
+keywords, fetch time and preset take 252 bytes on average. For slot context
+(\cref{sec:boundary}) the message also carries up to 64 labelled blocks, each
+as its SimHash, its \code{main} flag, up to 8 labels and its estimated
+position, and the page's ad containers. No block text is stored. The lab's full
+profile, with every level, all evidence and the segments' text, is a separate
+value of 9.3\,KB per page after zstd compression, which the bidder never
+reads.
+
+The labels obey one invariant, which saves the bidder a copy of the taxonomy.
+
+\begin{definition}[Ancestor-closed profile]\label{def:serving-closed}
+A label list $L$ with scores $s$ is \emph{ancestor-closed} when for every
+$v \in L$ and every $u \in \operatorname{anc}(v)$, also $u \in L$ and
+$s(u) \ge s(v)$.
+\end{definition}
+
+The cascade adds ancestors to every label (\cref{sec:cascade}), so served
+profiles have this property. A rule on a node then needs no tree: ``Sports or
+anything under it scores at least 0.5'' holds exactly when the id of Sports
+itself is in the list with a score of at least 0.5. Checking one category
+in the Go SDK is a scan of at most 20 labels.
+
+\subsection{Backoff: page, section, site}\label{sec:serving-backoff}
+
+A new article has no profile until the crawler reaches it, and most requests
+miss while a crawl is young. So a page that misses inherits a profile from
+where it lives. Write a normalised URL as $h/p_1/p_2/\dots$, with host $h$ and
+the query left out. Its top section is $h/p_1$ (none when $p_1$ is empty) and
+its site is $h$. Both have their own key,
+\begin{equation}\label{eq:serving-section-key}
+\kappa_s(q) = \texttt{contextual:section:} \,\|\, \operatorname{hex}\bigl(\operatorname{SHA\text{-}256}(q)\bigr),
+\end{equation}
+in a separate namespace, because a section's top page normalises to the same
+string as the section. The bidder tries $\kappa(u)$, then the section's key,
+then the site's (\cref{fig:serving-sequence}). We stop at the top section on
+purpose: the bidder's store client may have no multi-key read, so each level
+costs one more round trip on a miss.
+
+A section's profile is the mean of its pages. Let $D_q$ be the pages saved
+under prefix $q$, $n_q = |D_q|$, and $s_d(v)$ the served score of $v$ on page
+$d$, with $s_d(v) = 0$ when $v$ is not among its served labels. The store keeps
+the running sums $S_q(v) = \sum_{d \in D_q} s_d(v)$ and the count $n_q$. When
+the crawler saves page $d$ with new scores $s'_d$, and $s_d$ are the scores it
+added on its last crawl (all $0$ for a new page),
+\begin{align}
+S_q(v) &\leftarrow S_q(v) + s'_d(v) - s_d(v) \quad\text{for every } v \text{ in either list},\label{eq:serving-sums}\\
+n_q &\leftarrow n_q + [\,d \text{ is new}\,],\nonumber\\
+\bar{s}_q(v) &= S_q(v) / n_q, \quad\text{served once } n_q \ge 5.\label{eq:serving-mean}
+\end{align}
+A recrawled page therefore takes back what it added before, and the mean stays
+the mean of each page's latest scores. One Lua script applies
+\cref{eq:serving-sums} to the section and the site in a single atomic step,
+deletes sums that fall below $10^{-6}$ and returns the hashes. The crawler then
+writes each prefix with at least 5 pages as a \code{PageProfile}: its 20
+highest means, no keywords, under $\kappa_s(q)$ with the same 30-day expiry.
+The previous scores come from the page's summary in the store, so no second
+copy of the profile is read.
+
+\begin{proposition}\label{prop:serving-closed}
+If every page's served labels are ancestor-closed, so are the section's means
+in \cref{eq:serving-mean}, before the cut to the 20 highest.
+\end{proposition}
+\begin{proof}
+Take $u \in \operatorname{anc}(v)$. On every page $s_d(u) \ge s_d(v)$: when $v$
+is served this is \cref{def:serving-closed}, and otherwise $s_d(v) = 0$. Sum
+over $D_q$ and divide by $n_q$.
+\end{proof}
+
+So \code{Rule.Check} reads a section profile as it reads a page's; the cut to
+20 can only break this on a tie at the boundary. On the golden crawl, 383 pages
+give 37 sections and sites with at least 5 pages. On the Pi cluster, adding
+3,236 stored pages took 37 seconds and produced 1,318 prefixes, 242 of which
+reached 5 pages after a run with synthetic traffic. Hubs such as home pages,
+section fronts and live blogs change on almost every fetch, so the crawler
+deletes their page key on purpose and the bidder backs off to their section,
+which they keep feeding. Two limits remain. A page counts in its section until
+it is recrawled, however old; a window or a decay would fix that if sections
+drift. And URLs that start with a date give a year as their ``section''.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[
+  head/.style={box,minimum width=2.6cm,minimum height=0.75cm,font=\footnotesize},
+  msg/.style={font=\footnotesize,above,inner sep=1.5pt,fill=white},
+  act/.style={draw=ink,fill=soft,minimum width=0.22cm,inner sep=0pt},
+  life/.style={draw=ink!40,dashed}]
+  \foreach \x/\n/\t in {0/bid/{bid path\\(Go SDK)},4.1/st/{shared store},8.2/wk/{crawl-request\\workers},12.3/cr/{crawler}} {
+    \node[head] (\n) at (\x,0) {\t};
+    \draw[life] (\x,-0.4) -- (\x,-8.6);
+  }
+  % Miss on the page key.
+  \draw[arrow] (0,-1.0) -- node[msg] {\code{GET} $\kappa(u)$} (4.1,-1.0);
+  \draw[dashedarrow] (4.1,-1.45) -- node[msg] {nothing} (0,-1.45);
+  % Section hit.
+  \draw[arrow] (0,-2.0) -- node[msg] {\code{GET} $\kappa_s(h/p_1)$} (4.1,-2.0);
+  \draw[dashedarrow] (4.1,-2.45) -- node[msg] {mean profile, $n_q \ge 5$} (0,-2.45);
+  \node[note,anchor=west,align=left] at (4.25,-2.22) {on a miss, one more\\\code{GET} $\kappa_s(h)$};
+  % Local work on the bid path.
+  \node[act,minimum height=0.55cm] at (0,-3.05) {};
+  \node[font=\footnotesize,anchor=west,align=left] at (0.25,-3.05) {decode, \code{Rule.Check};\\level \code{Section}};
+  % Crawl request, never blocking.
+  \draw[arrow] (0,-3.8) -- node[msg,pos=0.72] {\code{Request}$(\nu(u), u)$} (8.2,-3.8);
+  \draw[dashedarrow] (8.2,-4.25) -- node[msg,pos=0.72] {queued, at once} (0,-4.25);
+  \node[note,anchor=west] at (0.15,-4.75) {the bid goes on};
+  \node[act,minimum height=0.5cm] at (8.2,-5.0) {};
+  \draw[arrow] (8.2,-5.0) -- node[msg] {publish $u$} (12.3,-5.0);
+  % The crawler, later.
+  \node[act,minimum height=1.3cm] at (12.3,-6.0) {};
+  \node[font=\footnotesize,anchor=east,align=right] at (12.1,-5.85) {fetch politely, run\\the cascade (later)};
+  \draw[arrow] (12.3,-6.6) -- node[msg] {\code{SET} $\kappa(u)$, 30 days; section sums} (4.1,-6.6);
+  % Next request for the same page.
+  \draw[arrow] (0,-7.55) -- node[msg] {\code{GET} $\kappa(u)$} (4.1,-7.55);
+  \draw[dashedarrow] (4.1,-8.0) -- node[msg] {page profile} (0,-8.0);
+  \node[font=\footnotesize,anchor=west] at (0.15,-8.35) {level \code{Page}};
+  % Braces.
+  \draw[decorate,decoration={brace,amplitude=4pt,mirror},ink!60] (-0.25,-0.85) -- (-0.25,-4.4)
+    node[midway,left=5pt,font=\footnotesize,align=right,text=ink] {one request:\\up to 3 \code{GET}s,\\no waiting};
+  \draw[decorate,decoration={brace,amplitude=4pt,mirror},ink!60] (-0.25,-7.4) -- (-0.25,-8.5)
+    node[midway,left=5pt,font=\footnotesize,align=right,text=ink] {a later\\request};
+\end{tikzpicture}
+\caption{A bid-time lookup for a page nobody has crawled yet. The page key
+  misses, the top section's mean profile answers, and the deal's rule runs on
+  it locally. The crawl request returns at once; a worker publishes it off the
+  bid path, and a later request for the same page finds its own profile.}
+\label{fig:serving-sequence}
+\end{figure}
+
+\subsection{Crawl requests on a miss}\label{sec:serving-crawl}
+
+Every request that does not find its page's own profile asks the crawler for
+it. The call must never slow the bid, so \code{CrawlRequests.Request} does only
+a map lookup and a channel send. It first marks the normalised URL as asked;
+a URL asked before returns \emph{already asked}. It then offers the page to a
+bounded queue and returns \emph{queued}, or \emph{dropped} when the queue is
+full or closed. A fixed pool of workers takes pages off the queue and
+publishes each URL, one message per page, to a topic the crawler subscribes
+to. A page that is dropped, or whose publish fails, is forgotten, so the next
+miss asks again. The set of asked pages starts over at 100,000 entries; a
+repeat then costs one message, which the crawler drops. The path from the SDK to the crawler was checked end to
+end on an emulator of the message service, with its real client library. The
+topic, the subscription and the permissions belong
+to the bidder's infrastructure and are not set up yet.
+
+\subsection{Hard rules, then a soft score}\label{sec:serving-rules}
+
+Matching runs in two stages (\cref{tab:serving-pipeline}). Hard rules come
+first, in a fixed order, and each refusal comes with a sentence a trader can
+read. A label counts once its score is at least 0.5, a node counts together
+with its descendants, and the reason names the deepest node that matched.
+Blocks are none-of: blocking Sports also blocks Soccer. Suitability refuses a
+creative that avoids Sensitive Topics when any node under that branch is on
+the page. Targets are any-of, and a descendant counts, so targeting Food \&
+Drink matches Cooking. When a campaign under-delivers, the
+logged refusals say which rule starves it.
+
+\begin{table}[t]
+\centering
+\caption{The matcher's stages (\code{Matcher.refusal} and \code{Matcher.score}
+  in \code{src/lib/matcher.ml}), in order, with the reasons the test suite
+  prints. The Go SDK ports the three hard rules as \code{Rule.Check}; the soft
+  score stays in OCaml.}
+\label{tab:serving-pipeline}
+\small
+\begin{tabularx}{\linewidth}{@{}l >{\raggedright\arraybackslash}p{4.1cm} >{\raggedright\arraybackslash}X l@{}}
+\toprule
+Stage & Passes when & Reason printed when it decides & Go verdict\\
+\midrule
+1. blocks & no blocked node on the page & advertiser blocks Sports; page is Sports > Soccer (0.92) & blocked\\
+2. suitability & the creative accepts Sensitive Topics, or none is on the page & brand suitability: page is Sensitive Topics > Crime \& Harmful Acts\dots\ (0.89) & unsuitable\\
+3. targets & no targets, or one is on the page & no targeted category on page & off-target\\
+4. soft score & stages 1--3 passed & topic Sports > Soccer $\sim$ Sports > Soccer (0.83); keywords: premier league & not ported\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+Creatives that pass get a score from three named features. The
+first is topical. Let page $d$ carry labels $u$ with scores $s_u$ and creative
+$c$ carry labels $w$ with scores $t_w$, both in the same \iab{} label space. With
+$\operatorname{depth}(v) = |\operatorname{anc}(v)|$, so that a root has depth
+1, the Wu--Palmer similarity of two nodes is
+\begin{equation}\label{eq:serving-wup}
+\operatorname{wp}(u, w) = \frac{2\,\operatorname{depth}(\operatorname{lca}(u, w))}{\operatorname{depth}(u) + \operatorname{depth}(w)}
+ = \frac{2\,|\operatorname{anc}(u) \cap \operatorname{anc}(w)|}{|\operatorname{anc}(u)| + |\operatorname{anc}(w)|},
+\end{equation}
+and $0$ when $u$ and $w$ sit under different roots (\cref{fig:serving-wup}).
+It is 1 for the same node, $2/3$ for a root and its child, and $1/2$ for two
+children of a root. The topic feature takes the best pair,
+\begin{equation}\label{eq:serving-topic}
+\operatorname{topic}(d, c) = \max_{u, w}\; s_u\, t_w\, \operatorname{wp}(u, w),
+\end{equation}
+and reports that pair as its reason. This is the taxonomy score of
+\citet{broder2007semantic}, which backs off through the lowest common ancestor
+in the same way. The keyword feature is the share of the creative's keywords
+$K_c$ found among the page's $K_d$, after both pass through the same text
+normaliser: $\operatorname{kw}(d, c) = |K_c \cap K_d| / |K_c|$, and $0$ when
+$K_c$ is empty. Requiring the ad's keywords on the page lifted average
+precision by 60\% over plain cosine matching in \citet{ribeironeto2005impedance}. The lift feature
+is $\operatorname{lift}(d, c) = \max_u s_u\, A(\pi_c, u)$, where $\pi_c$ is the
+creative's product category and $A$ a table of learned affinities between
+product and page categories. Because $A$ is keyed by product, a new creative
+inherits what its category has already taught, and beer can score on a sports
+page without any topical overlap. The score is
+\begin{equation}\label{eq:serving-score}
+\operatorname{score}(d, c) = 0.6\,\operatorname{topic}(d, c) + 0.25\,\operatorname{kw}(d, c) + 0.15\,\operatorname{lift}(d, c).
+\end{equation}
+On a football match report the test suite gives boots 0.621, from the pair
+Soccer $\sim$ Soccer (0.83) and the keyword ``premier league''; beer 0.083,
+from a test lift of Beer on Sports; an electric car blocked by its
+advertiser's block on Sports; and cookware off-target.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[
+  tn/.style={box,font=\footnotesize,minimum width=1.9cm,minimum height=0.62cm,inner sep=3pt},
+  hl/.style={tn,draw=accent,line width=1.1pt,fill=accent!12},
+  dk/.style={tn,draw=ink,line width=1.1pt},
+  tag/.style={font=\scriptsize\bfseries,inner sep=1pt},
+  edge/.style={draw=ink!60}]
+  \foreach \y/\t in {0/depth 1,-1.35/depth 2,-2.7/depth 3} {
+    \draw[ink!15,dashed] (-2.0,\y) -- (12.2,\y);
+    \node[font=\scriptsize,text=ink!60,anchor=east] at (-2.05,\y) {\t};
+  }
+  \node[tn] (sp) at (3.2,0) {Sports};
+  \node[tn,draw=accent,line width=1.1pt] (cs) at (0.9,-1.35) {College Sports};
+  \node[dk] (so) at (3.75,-1.35) {Soccer};
+  \node[tn] (ru) at (6.1,-1.35) {Rugby};
+  \node[hl] (cf) at (-0.55,-2.7) {College Football};
+  \node[hl] (cb) at (2.45,-2.7) {College Basketball};
+  \node[tn] (rl) at (6.1,-2.7) {Rugby Union};
+  \node[tn] (fd) at (9.85,0) {Food \& Drink};
+  \node[tn] (co) at (8.75,-1.35) {Cooking};
+  \node[tn] (ab) at (11.05,-1.35) {Alc.\ Beverages};
+  \foreach \a/\b in {sp/cs,sp/so,sp/ru,cs/cf,cs/cb,ru/rl,fd/co,fd/ab} \draw[edge] (\a.south) -- (\b.north);
+  \node[tag,text=accent,anchor=south east] at (cs.north west) {LCA};
+  \node[tag,text=ink,anchor=south east] at (sp.north west) {LCA};
+  \node[font=\footnotesize,align=left,anchor=north west] at (-2.0,-3.3) {%
+    \textcolor{accent}{$\operatorname{wp}(\text{College Football}, \text{College Basketball}) = \tfrac{2\cdot 2}{3+3} = 0.67$},
+      lowest common ancestor College Sports\\[3pt]
+    $\operatorname{wp}(\text{College Football}, \text{Soccer}) = \tfrac{2\cdot 1}{3+2} = 0.40$,
+      lowest common ancestor Sports\\[3pt]
+    $\operatorname{wp}(\text{Soccer}, \text{Cooking}) = 0$, no common ancestor};
+\end{tikzpicture}
+\caption{Wu--Palmer similarity on two branches of \iab. Two leaves under the
+  same parent (filled blue) meet at College Sports and score 0.67. College
+  Football and Soccer (dark outline) meet only at the root and score 0.40.
+  Nodes under different roots score 0, so a topic match never crosses from
+  Sports to Food \& Drink.}
+\label{fig:serving-wup}
+\end{figure}
+
+The weights 0.6, 0.25 and 0.15 are set by hand. They are a placeholder for a
+learned model, marked as a shortcut in the code, and we make no claim that
+they are right. The plan is a logistic regression on engagement over the same
+named features with format and device crosses, as
+\citet{chakrabarti2008contextual} did for clicks, so that the weights stay
+readable as logits. A contextual bandit over the same features
+\citep{li2010contextual} would then explore among eligible creatives, with
+propensities logged for offline evaluation, and a floor below which the bidder
+does not force relevance and falls back to its non-contextual bid
+\citep{broder2008swing}. The lift table is empty today, so lift is 0 in
+every score today. The creative side is also thin: a creative comes from a text
+prompt labelled by \tier{1} and \tier{2}, not yet from its ad copy and landing
+page, and product categories are not loaded.
+
+\subsection{Curated deals: placement list or context}\label{sec:serving-deals}
+
+The first use is curated deals. A deal takes a request whose placement is on
+its list, \emph{or} whose page matches its context. If deal filters are ANDed,
+a separate context filter could only shrink supply, so the OR belongs inside
+the placement check:
+\begin{lstlisting}
+func placementOK(deal *Deal, req *BidRequest) bool {
+    if deal.Placements.Contains(req.PlacementID) {
+        return true
+    }
+    return deal.ContextRule != nil && req.ContextualLevel != contextual.NotFound &&
+        deal.ContextRule.Check(&req.Contextual).Verdict == contextual.Eligible
+}
+\end{lstlisting}
+A deal's context is a \code{Rule}: its targets, blocks, Sensitive Topics choice
+and a minimum score, 0.5 by default. A page with no profile at any level is not
+eligible, as keyword targeting treats a request without keywords. When the
+request names the blocks around its slot, the rule can run on the slot's
+context from \code{Profile.AtSlot} instead of the page's
+(\cref{sec:boundary}). The bidder integration is written as a guide, not
+deployed. Its first step is a shadow mode that only counts, per deal, the
+requests context would add. A per-deal minimum score that falls when a deal is
+behind pace and rises when it is ahead is planned, as are per-bid logs of each
+decision.
+
+\subsection{An allocation-free reader}\label{sec:serving-reader}
+
+A bidder decodes a profile on every request, so the decoder must not allocate.
+\code{Profile.Decode} walks the protobuf wire format by hand. It reuses the
+profile's slices, so a pooled profile decodes in place. Label ids are not
+copied: they point into the input buffer, which must not change while the
+profile is in use. Every block's labels share one backing array. Fields the
+decoder does not know are skipped, so a writer can add fields without breaking
+deployed readers. The tests assert zero allocations for decoding a profile
+with blocks and for a decode followed by \code{Rule.Check}.
+\Cref{tab:serving-sdk} lists the calls, their cost and the fixtures that pin
+each one to the OCaml side.
+
+\begin{table}[t]
+\centering
+\caption{The Go SDK's calls (\code{sdks/go/contextual}). Costs are Go
+  benchmarks on an Apple M4. Fixtures are written by the OCaml side, so both
+  implementations answer the same cases.}
+\label{tab:serving-sdk}
+\small
+\begin{tabularx}{\linewidth}{@{}l >{\raggedright\arraybackslash}X l l@{}}
+\toprule
+Call & What it does & Cost per call & Checked against\\
+\midrule
+\code{Key} & the page's key, \cref{eq:serving-key} & 83\,ns, 2 allocations & 95 URLs\\
+\code{Sections}, \code{SectionKey} & prefixes and their keys, \cref{eq:serving-section-key} & & the same 95 URLs\\
+\code{LookupWithBackoff} & page, then section, then site & one \code{GET} per level & unit tests\\
+\code{Profile.Decode} & protobuf into a reused profile & 83\,ns, no allocation & every fixture\\
+\code{Rule.Check} & a deal's rule and its reason & 9\,ns, no allocation & 3,000 profiles\\
+\code{Profile.AtSlot} & the slot's context (\cref{sec:boundary}) & 1.8\,\textmu s, 23 allocations & 2,000 cases\\
+\code{Profile.SlotOfGPID} & the slot's blocks from a GPID & & 1,000 cases\\
+\code{CrawlRequests.Request} & a crawl request that never blocks & a map lookup, a send & unit tests\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+The 3,000 rule fixtures are profiles built as the cascade builds them, with
+ancestors added and scores rounded to 32-bit floats as the wire carries them,
+each paired with a random deal rule and the OCaml matcher's verdict. The 2,000
+slot fixtures pair a profile with the \code{ctx} of a bid request. Most of its
+hashes copy one of the profile's blocks with up to 5 bits flipped and the rest
+are random, so both sides of the 3-bit threshold are exercised. \code{AtSlot} must match \code{Slot.context}
+to within $10^{-5}$ on every label. The fixtures are regenerated after any
+change to the matcher, the label order or the profile format.

@@ -1,0 +1,42 @@
+cff-version: 1.2.0
+message: "If you use Byakugan, please cite the paper below."
+title: "Byakugan"
+abstract: >-
+  Cookieless contextual advertising: a budgeted cascade of five tiers labels
+  pages against the IAB Content Taxonomy 3.1, and a bidder reads the labels,
+  and the context of each ad slot, in microseconds.
+type: software
+authors:
+  - family-names: Mougard
+    given-names: Gabriel
+repository-code: "https://github.com/gabrielmougard/byakugan"
+license: MIT
+keywords:
+  - contextual advertising
+  - cookieless advertising
+  - programmatic advertising
+  - real-time bidding
+  - brand safety
+  - brand suitability
+  - IAB Content Taxonomy
+  - hierarchical multi-label classification
+  - classification cascade
+  - large language models
+  - cost-aware inference
+  - ad slot context
+  - web crawling
+  - explainability
+preferred-citation:
+  type: report
+  title: >-
+    Byakugan: seeing what the reader sees. Budgeted classification cascades
+    and slot-level context boundaries for cookieless contextual advertising
+  authors:
+    - family-names: Mougard
+      given-names: Gabriel
+  year: 2026
+  month: 11
+  publisher:
+    name: Zenodo
+  doi: "10.5281/zenodo.24157748"
+  url: "https://doi.org/10.5281/zenodo.24157748"

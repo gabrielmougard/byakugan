@@ -1,0 +1,6 @@
+apiVersion: v2
+name: registry
+description: Plain-HTTP OCI registry inside the cluster, so nodes can pull images built on a workstation
+type: application
+version: 0.1.0
+appVersion: "3.0.0"

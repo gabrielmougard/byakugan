@@ -1,0 +1,35 @@
+{
+  "title": "Byakugan: cookieless contextual advertising, from the page down to the ad slot",
+  "upload_type": "software",
+  "description": "<p>Byakugan crawls the pages a bidder sees, busiest first, and labels each against the 704 categories of the IAB Content Taxonomy 3.1 with a budgeted cascade of five tiers, from the URL alone to a small language model; a page pays for the next tier only while it is still in doubt, and every label keeps the quote and reason behind it. A Go SDK reads the profiles inside the bid in nanoseconds, backs off to the page's section and site, and computes the context of each ad slot from the blocks around it, which a Prebid.js module reports. OCaml 5 and C (ggml, lexbor, Google's robots.txt matcher). The model files are attached to the GitHub release models-v1.</p>",
+  "creators": [
+    { "name": "Mougard, Gabriel" }
+  ],
+  "license": "mit",
+  "keywords": [
+    "contextual advertising",
+    "cookieless advertising",
+    "programmatic advertising",
+    "real-time bidding",
+    "brand safety",
+    "brand suitability",
+    "IAB Content Taxonomy",
+    "hierarchical multi-label classification",
+    "classification cascade",
+    "large language models",
+    "cost-aware inference",
+    "ad slot context",
+    "web crawling",
+    "explainability",
+    "OCaml",
+    "Byakugan"
+  ],
+  "related_identifiers": [
+    {
+      "identifier": "10.5281/zenodo.24157748",
+      "relation": "isDocumentedBy",
+      "scheme": "doi",
+      "resource_type": "publication-preprint"
+    }
+  ]
+}

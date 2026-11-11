@@ -1,0 +1,155 @@
+% 04-crawl
+\section{Crawling, extraction and archiving}\label{sec:crawl}
+
+The cascade can only label pages it has read. This section is about getting them: which pages to fetch first, how a fleet of crawlers shares one queue without breaking a site's politeness, what a publisher allows us to do with its text, what we pull out of the HTML, and when a page is worth fetching again.
+
+\subsection{Which pages, and how fast}\label{sec:crawl-which}
+
+Pages matter in proportion to the bid requests that carry them. On real exchange traffic, millions of distinct pages carry a bid request each day once URLs are normalised as the bidder normalises them. The traffic is concentrated: a small head of busy pages carries most of the requests, and a long tail of pages is seen only a few times. It is also new. A large share of each day's requests is on pages that had no request in the previous week.
+
+New pages are where timing matters. A page that will become busy builds its traffic over hours: little of its first two days of requests arrives in the hour of its first request, and most arrives within a day. A profile ready an hour after the first request misses almost nothing; one ready the next morning misses most of the page's life. The long tail behaves the other way. A page that will only ever get a few requests gets most of them at once. No crawl is fast enough for those, and they are worth little.
+
+This shapes discovery. A queue filled from yesterday's logs reaches a new page after most of its traffic. Three sources feed the frontier instead, ordered by how early they see a page. First, a crawl request on every profile miss: when the bidder looks up a page and finds nothing, it publishes the URL on a message queue, at most once per page and without ever blocking the bid (\cref{sec:serving-crawl}). A busy page's first requests arrive while it is still quiet, so the crawl starts in time. Second, news sitemaps: every ten minutes the crawler reads the sitemaps of the busiest publishers and queues the pages they date in the last 48 hours, from publication dates or \code{lastmod}, publishers with the most new pages first. Third, the request logs themselves, which rank everything else by traffic. Ordinary sitemaps and same-host links fill the gaps.
+
+\subsection{One frontier for many crawlers}\label{sec:crawl-frontier}
+
+Any number of crawler processes share one frontier held in the key-value store. Two goals pull against each other. The busiest page should go first, and no site should see more than one request at a time from us, at most one per second or per its \code{Crawl-delay}, whichever is longer. The frontier therefore has two levels (\cref{fig:crawl-frontier}). Each origin has its own queue, a sorted set of URLs scored by minus their bid requests a day. A second sorted set holds the origins with work, scored by the earliest time each may be fetched again. A worker claims in one Lua script, which the store runs atomically. It looks at up to 64 origins that are due, takes the one whose next URL is busiest, pops that URL, pushes the origin's next allowed time forward by a lease, and records the claim with its time. After the fetch, the worker releases the origin: it becomes due again after $\max(1\,\mathrm{s}, \text{Crawl-delay})$.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[x=1cm,y=1cm,font=\footnotesize,scale=0.92,transform shape]
+\tikzset{
+  fq/.style={draw=ink!70, fill=white, minimum width=0.78cm, minimum height=0.5cm, inner sep=0pt, font=\scriptsize},
+  fz/.style={draw=ink!70, rounded corners=2pt, fill=soft, align=center, inner sep=4pt, font=\footnotesize},
+  fw/.style={draw=accent, fill=accent!10, rounded corners=2pt, align=center, inner sep=4pt, font=\footnotesize},
+  fl/.style={-{Stealth[length=1.6mm]}, semithick, draw=ink},
+  ft/.style={font=\scriptsize, text=ink!80},
+}
+\node[font=\footnotesize\bfseries, anchor=west] at (-0.95,3.75) {one queue per origin};
+\foreach \o/\y/\a/\b/\c in {A/3.1/$-912$/$-40$/0, B/2.4/$-3104$/$-77$/$-2$, C/1.7/$-58$/0/0, D/1.0/$-470$/$-311$/$-9$} {
+  \node[anchor=east, ft] at (0.12,\y) {\o};
+  \node[fq, fill=ttwo!25] at (0.55,\y) {\a};
+  \node[fq] at (1.33,\y) {\b};
+  \node[fq] at (2.11,\y) {\c};
+  \node[ft] at (2.72,\y) {\dots};
+}
+\node[note, anchor=north west, align=left] at (-0.95,0.62) {score: minus bid requests a day;\\the head (green) is the busiest page};
+
+\node[fz, text width=3.25cm] (hosts) at (5.35,2.05) {\textbf{origins with work}\\[1pt] scored by next allowed time\\[3pt]
+  {\scriptsize B, A: now\quad D: in 0.4\,s\quad C: in 1\,s}};
+\node[fw, text width=2.2cm] (claim) at (9.35,2.05) {\textbf{claim}\\one atomic\\Lua script};
+\node[fz, text width=2.5cm] (infl) at (12.9,3.35) {\textbf{in flight}\\URL, origin,\\claim time};
+\node[fw, text width=2.5cm] (fetch) at (12.9,0.85) {fetch the page;\\classify after release};
+
+\draw[fl] (3.0,2.05) -- (hosts.west);
+\draw[fl] (hosts.east) -- node[above, ft] {64 due} (claim.west);
+\draw[fl] (claim.north) |- node[pos=0.72, above, ft] {record the claim} (infl.west);
+\draw[fl] (claim.south) |- node[pos=0.72, below, ft] {the busiest head} (fetch.west);
+\draw[fl] (fetch.south) -- ++(0,-0.6) -| node[pos=0.27, below, ft] {release: due again after $\max(1\,\mathrm{s},\ \text{Crawl-delay})$} (hosts.south);
+\draw[fl, dashed, draw=tfour] (infl.east) -- ++(0.5,0) |- node[pos=0.25, right, ft, align=left, text=tfour!85!black] {older than\\2 minutes:\\back in\\its queue} (fetch.east);
+\end{tikzpicture}
+\caption{The shared frontier. A claim picks, among the origins due now, the one whose next page is busiest, and takes that page in one atomic step. The origin stays leased until the fetch ends; then it is due again after the politeness delay. A claim older than two minutes belongs to a crawler that died, and any replica's housekeeping puts the page back.}
+\label{fig:crawl-frontier}
+\end{figure}
+
+Because every step that touches more than one key is a single script, two replicas never fetch the same URL or the same origin at once, and the politeness interval holds across machines. On the three-board cluster of \cref{sec:impl}, three replicas crawled 15 pages from 3 sites with every page fetched once and fetches to one origin at least 1.07\,s apart. A seen-set queues each normalised URL once in the whole fleet. A page already waiting moves up when a newer count says it is busier.
+
+\subsection{robots.txt}\label{sec:crawl-robots}
+
+Every fetch, page, image, sitemap or licence, is checked against the site's robots.txt under RFC~9309 \citep{rfc9309}, cached for 24 hours and shared by every replica. A missing file allows everything; a server error or an unreachable host disallows everything. We match with Google's reference implementation of the standard, through our own adapter. The published OCaml binding re-parses the whole file for every URL. Our adapter parses each file once, keeps only the rules of groups that apply to our user agent, and replays them. That made a check about four times faster than the binding. Against the pure OCaml parser it replaced, parsing fell from 370 to 19\,$\mu$s on average and a check from 10.0 to 8.3\,$\mu$s. Speed was never the point: the crawler waits at least a second between requests to a host, and a 1\,$\mu$s check is a millionth of that. The point was correctness. The old parser got all 6 of the standard's edge cases we tested wrong.
+
+\subsection{What a publisher allows}\label{sec:crawl-gate}
+
+Fetching a page to classify it is ordinary crawling. Sending its text to a generative model is something publishers increasingly want a say in, and three signals now carry their answer (\cref{tab:crawl-gate}). The IETF's aipref vocabulary \citep{keller2026vocabulary} attaches usage preferences to paths through a \code{Content-Usage} line in robots.txt or a response header. Content Signals adds an \code{ai-input} preference in robots.txt. RSL \citep{rsl2025really} points to a machine-readable licence, from robots.txt, a \code{Link} header or a \code{<link rel="license">} element. Before \tier{4}, a gate reads all three for the page. The most restrictive answer wins, and the verdict, with its reason, is stored in the profile. A denied page never reaches the model at any level. Licences are fetched politely and cached for their stated maximum age, 30 days by default; a licence that cannot be fetched counts as missing for an hour, during which the page is treated as unlicensed.
+
+\begin{table}[t]
+\centering\small
+\caption{The AI-use gate. Each source can allow, deny or say nothing about using the page as input to a generative model. A deny anywhere denies; with no stated preference and no licence, the page is allowed.}
+\label{tab:crawl-gate}
+\begin{tabularx}{\linewidth}{@{}l>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X@{}}
+\toprule
+Signal & Where it is read & What denies \tier{4} \\
+\midrule
+aipref & \code{Content-Usage} in robots.txt, matched to the path like any rule; the response header of the page & a preference against AI training or use that covers this page \\
+Content Signals & \code{Content-Signal} lines in robots.txt & \code{ai-input=no} \\
+RSL licence & robots.txt \code{License:}, a \code{Link} header, \code{<link rel="license">} & a licence that does not permit AI use without terms we meet; a licence behind a licence server, which we cannot negotiate yet \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+The robots.txt lines of all three come out of the same pass through Google's parser, so the gate costs no extra parse. On the golden sample of \cref{sec:eval}, 41 of 383 stored pages are denied.
+
+\subsection{Extraction}\label{sec:crawl-extract}
+
+A page is fetched once and every free signal is taken from that one response. We parse HTML with lexbor, a C implementation of the HTML5 parsing algorithm, behind a small adapter that flattens the tree into a compact token stream for OCaml. On 36 real article pages it extracts 2.6 times faster than the tolerant tag scanner it replaced, about 1.4\,ms a page, and it is right where the scanner was wrong. The extractor fills the zones of \cref{eq:cascade-lexicon}, each with a weight: the URL's words and the request's hints (2), the title (3), the section from breadcrumbs or markup (2.5), keywords (2), the description (1.5), headings (1.5), the text describing media (1) and the body's sentences (1). Structured data is read wherever it is: JSON-LD and Open Graph, which almost every busy page carries, give titles, sections, keywords, publication dates and the page type (an article, a live blog).
+
+The page is also cut into blocks in reading order: paragraphs, headings, images, embeds. Each block carries its tag, its text, whether it is main content, and an estimated position and height in viewports of a 390-pixel-wide phone, which \cref{sec:boundary} uses to place slots. Navigation, sidebars, ``most read'' lists and footers are kept but flagged as not main. They never count for relevance, and always for suitability. Each block also records the innermost \code{<article>} around it, so a page that holds several stories gives each story its own labels, and the element ids of ad containers (\code{div-gpt-ad-\dots}, \code{mpu}, \code{leaderboard}), so slot positions can be learned per template.
+
+The crawler does not render pages. Rendering costs 10 to 50 times a plain fetch, and on the pages that matter the markup already says what the page is.
+
+\subsection{Archiving}\label{sec:crawl-archive}
+
+Every page the crawler classifies is kept as a WARC record: one gzip member per record, about 64\,KB a page, written by a vendored Rust library behind a C interface and indexed in the shared store. The archive serves three purposes. The lab shows the archived page, scripts off, with the extracted blocks and their scores drawn over it. Geometry measured on the archived page replaces the estimated layout. And any profile can be recomputed from the exact bytes it came from, which matters when a calibration changes.
+
+\subsection{Refresh}\label{sec:crawl-refresh}
+
+A page is fetched again only if it has bid traffic. The others are left alone, and their serving keys expire after 30 days. For a page worth refreshing, three questions come in order of cost.
+
+\paragraph{Did the server say it changed?} The last \code{ETag} and \code{Last-Modified} go back as \code{If-None-Match} and \code{If-Modified-Since}. A \code{304 Not Modified} costs a round trip and no body. On the golden sample, 78 of 338 refreshed pages, 23\%, send these validators.
+
+\paragraph{Did the text change?} A \code{200} is compared with the last fetch by a 64-bit SimHash of the main text \citep{charikar2002similarity}. Let $W$ be the page's words as the lexicon sees them, case and accents folded, and $h(w) \in \{0,1\}^{64}$ the 64-bit FNV-1a hash of word $w$. The fingerprint's $i$-th bit is a majority vote:
+\begin{equation}\label{eq:crawl-simhash}
+  \operatorname{sh}(W)_i = \mathbf{1}\Bigl[\sum_{w \in W} \bigl(2\,h(w)_i - 1\bigr) > 0\Bigr], \qquad i = 0, \dots, 63.
+\end{equation}
+A small edit flips few votes, so fingerprints of near-identical texts differ in few bits. We call a page unchanged when
+\begin{equation}\label{eq:crawl-unchanged}
+  \bigl\lVert \operatorname{sh}(W) \oplus \operatorname{sh}(W') \bigr\rVert_1 \le 3
+  \quad\text{and}\quad
+  \text{the pipeline version is the same},
+\end{equation}
+the threshold \citet{manku2007detecting} found right for 64-bit fingerprints at web scale. A classification is a function of the main text and the pipeline version (a hash over the taxonomy, lexicon, models and calibration, \cref{sec:impl}), so an unchanged page is not reclassified. Its serving keys, and its section's and site's, just get another 30 days.
+
+\paragraph{When next?} The interval follows the page's age and its history (\cref{fig:crawl-schedule}). Let $a$ be the time since publication, from JSON-LD \code{datePublished} or \code{article:published\_time}, else since the first crawl, and $u$ the number of unchanged fetches in a row. For an article,
+\begin{equation}\label{eq:crawl-interval}
+  \Delta(a, u) =
+  \begin{cases}
+    2\,\mathrm{h} & a < 48\,\mathrm{h},\\
+    \min\bigl(2^{u}\,\mathrm{d},\ 14\,\mathrm{d}\bigr) & \text{otherwise,}
+  \end{cases}
+\end{equation}
+and a change resets $u$ to 0. The count runs through the first two days, so a young page that is never edited has two dozen unchanged fetches behind it at 48 hours and goes straight to the cap. Fourteen days stays under the 30-day expiry of the serving key, so a page with traffic never drops out of the store between fetches.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+  width=0.88\linewidth, height=5.6cm,
+  xmin=0, xmax=46, ymode=log, log basis y=2, ymin=0.06, ymax=22,
+  xlabel={days since publication}, ylabel={time to the next fetch},
+  ytick={0.0833,1,2,4,8,14}, yticklabels={2 h,1 d,2 d,4 d,8 d,14 d},
+  xtick={0,2,5,10,20,30,40},
+  grid=major, grid style={ink!12}, axis line style={ink!60}, tick style={ink!60},
+  ticklabel style={font=\footnotesize}, label style={font=\small},
+  legend style={at={(0.98,0.04)},anchor=south east,font=\footnotesize,draw=ink!25,fill=white},
+  legend cell align=left,
+]
+\addplot[ttwo!85!black, line width=1.2pt, const plot] coordinates {
+  (0,0.0833) (2,1) (3,2) (5,4) (9,8) (17,14) (31,14) (45,14) (46,14)};
+\addlegendentry{edited in its first 48 h, then stable}
+\addplot[tfour, line width=1.1pt, densely dashed, const plot] coordinates {
+  (0,0.0833) (2,1) (3,2) (5,4) (9,1) (10,2) (12,4) (16,8) (24,14) (38,14) (46,14)};
+\addlegendentry{edited again at day 9}
+\addplot[only marks, mark=*, mark size=1.5pt, ttwo!85!black, forget plot] coordinates {(2,1) (3,2) (5,4) (9,8) (17,14) (31,14) (45,14)};
+\addplot[only marks, mark=*, mark size=1.5pt, tfour, forget plot] coordinates {(9,1) (10,2) (12,4) (16,8) (24,14) (38,14)};
+\draw[ink!45, densely dotted] (axis cs:2,0.06) -- (axis cs:2,22);
+\node[font=\scriptsize, text=ink!70, anchor=west] at (axis cs:2.4,0.11) {before: every 2 h for 48 h};
+\node[font=\scriptsize, text=ink!70, anchor=north west, align=left] at (axis cs:25,11) {cap: 14 days, under the\\serving key's 30-day expiry};
+\end{axis}
+\end{tikzpicture}
+\caption{The refresh schedule of \cref{eq:crawl-interval}, as fetch times (dots) and the interval to the next fetch (lines). A page is fetched every two hours while it is young, when it is most likely to be edited and its traffic is highest, then daily, doubling with each unchanged fetch. A change brings it back to a day.}
+\label{fig:crawl-schedule}
+\end{figure}
+
+\paragraph{Hubs.} Some pages change on every fetch and are never about one thing: home pages, live blogs (\code{LiveBlogPosting} in their markup), section fronts (one-segment URLs without a publication date), and any page that moved on each of its last three fetches. We do not chase them. Their page key is dropped, so the bidder backs off to their section or site (\cref{sec:serving-backoff}), and they are fetched daily to keep counting there. A one-segment URL with a publication date stays an article: 56 of the 66 one-segment URLs of the golden sample are articles.
+
+On the three-board cluster, with synthetic traffic on the golden sample's pages, 26 of 338 stored pages became hubs. A second wave on all 338, minutes after the first, took 45 seconds; every page came back unchanged, most of them by SimHash (88 of the last 100) and the rest by \code{304} (12), and none was reclassified. Whether a word-level SimHash moves enough on a home page over hours, rather than minutes, is still to measure. So is per-host trust in validators and \code{lastmod}, which some servers get wrong.

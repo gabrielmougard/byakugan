@@ -1,0 +1,433 @@
+% 06-boundary
+\section{Context boundaries: from the page to the slot}\label{sec:boundary}
+
+The profile of \cref{sec:cascade} describes a URL. An ad does not see a URL.
+It sits at one spot on a page, and the reader sees it together with whatever
+is on screen at that moment. An interscroller opens in the middle of an
+article, right after the paragraphs the reader has just read. A sidebar banner
+sits next to a ``most read'' list that may have nothing to do with the
+article. A full-screen interstitial covers the page and has no position in it
+at all. So we ask where the context of an ad stops. Our answer is that it
+stops in three places, each with its own job, and that the ad format decides
+how much each one counts (\cref{fig:boundary-phone}).
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[
+  ln/.style={line width=0.9pt,draw=ink!35,line cap=round},
+  big/.style={line width=1.5pt,draw=ink!40,line cap=round},
+  hatch/.style={draw=ink!55,dashed,pattern=north east lines,pattern color=ink!30},
+  lab/.style={font=\footnotesize,text=ink,align=right,anchor=east,inner sep=1pt},
+  rlab/.style={font=\footnotesize,text=ink,align=left,anchor=west,inner sep=1pt},
+  lead/.style={draw=ink!55,thin}]
+  % Left: the whole page, to scale vertically (1 viewport = 1.05 cm).
+  \begin{scope}[yscale=-1.05]
+    \fill[soft] (-0.62,-3.85) rectangle (1.47,3.2);
+    \draw[ink!60,densely dotted,thick,rounded corners=2pt] (-0.62,-3.85) rectangle (1.47,3.2);
+    \fill[accent!6] (-0.42,-3) rectangle (1.27,3);
+    \draw[accent!70,dashed,thick,rounded corners=2pt] (-0.42,-3) rectangle (1.27,3);
+    \fill[accent!16] (-0.22,-1) rectangle (1.07,1);
+    \draw[accent,thick,rounded corners=2pt] (-0.22,-1) rectangle (1.07,1);
+    \fill[white] (0,-4.35) rectangle (0.85,3.8);
+    \draw[ink!45] (0,-4.35) rectangle (0.85,3.8);
+    \fill[hatch] (0.06,-4.25) rectangle (0.79,-4.02);
+    \draw[ink!60,line width=2pt] (0.1,-3.68) -- (0.65,-3.68);
+    \foreach \y in {-3.48,-3.36,...,-2.9} \draw[ln] (0.1,\y) -- (0.75,\y);
+    \fill[ink!15] (0.1,-2.75) rectangle (0.75,-2.15);
+    \foreach \y in {-2.0,-1.88,...,-1.2} \draw[ln] (0.1,\y) -- (0.75,\y);
+    \draw[big] (0.1,-1.0) -- (0.5,-1.0);
+    \foreach \y in {-0.85,-0.73,...,-0.1} \draw[ln] (0.1,\y) -- (0.75,\y);
+    \fill[accent!85] (0.14,0) rectangle (0.71,0.30);
+    \draw[ln] (0.1,0.35) -- (0.75,0.35);
+    \fill[hatch] (0.1,0.41) rectangle (0.75,0.58);
+    \foreach \y in {0.70,0.82,...,1.95} \draw[ln] (0.1,\y) -- (0.75,\y);
+    \draw[big] (0.1,2.12) -- (0.45,2.12);
+    \foreach \y in {2.27,2.39,...,2.8} \draw[ln] (0.1,\y) -- (0.75,\y);
+    \fill[hatch] (0.06,3.3) rectangle (0.79,3.7);
+    % The viewport.
+    \draw[ink,line width=1.3pt,rounded corners=1.5pt] (-0.06,-0.40) rectangle (0.91,0.60);
+    \coordinate (vt) at (0.91,-0.40);
+    \coordinate (vb) at (0.91,0.60);
+    % Labels.
+    \node[lab] (a) at (-0.95,-3.45) {page: the story the slot\\sits in, with weight $w_f$};
+    \draw[lead] (a.east) -- (-0.62,-3.45);
+    \node[lab] (b) at (-0.95,-2.0) {local window, $|d|\le 3$:\\the 12 nearest blocks,\\weighted by distance};
+    \draw[lead] (b.east) -- (-0.42,-2.0);
+    \node[lab] (c) at (-0.95,-0.72) {co-visible window, $|d|\le 1$:\\its worst block decides suitability};
+    \draw[lead] (c.east) -- (-0.22,-0.72);
+    \node[lab] (e) at (-0.95,0.25) {viewport: on screen now};
+    \draw[lead] (e.east) -- (-0.06,0.25);
+    \node[lab] (f) at (-0.95,3.5) {navigation and comments\\lie outside the story};
+    \draw[lead] (f.east) -- (0,3.5);
+  \end{scope}
+  % Right: the viewport, enlarged, as the reader's phone shows it.
+  \fill[ink!5] (vt) -- (3.05,2.85) -- (3.05,-2.85) -- (vb) -- cycle;
+  \draw[ink!30] (vt) -- (3.05,2.85) (vb) -- (3.05,-2.85);
+  \draw[ink,line width=1.4pt,fill=white,rounded corners=9pt] (2.9,-3.3) rectangle (5.9,3.3);
+  \fill[ink] (4.05,3.06) rectangle (4.75,3.12);
+  \draw[ink!50,line width=1.2pt,line cap=round] (4.0,-3.1) -- (4.8,-3.1);
+  \draw[ink!50] (3.05,-2.85) rectangle (5.75,2.85);
+  \foreach \y in {2.62,2.42,...,1.0} \draw[ln] (3.25,\y) -- (5.55,\y);
+  \draw[ln] (3.25,0.82) -- (4.6,0.82);
+  \fill[accent!85] (3.36,0.57) rectangle (5.44,-1.14);
+  \node[font=\footnotesize\bfseries,text=white] at (4.4,-0.29) {ad slot};
+  \draw[ln] (3.25,-1.32) -- (5.55,-1.32);
+  \draw[ln] (3.25,-1.50) -- (5.0,-1.50);
+  \fill[hatch] (3.2,-1.68) rectangle (5.6,-2.74);
+  \node[font=\tiny\bfseries,anchor=north west,inner sep=1pt,fill=white] at (3.3,-1.76) {Most read};
+  \node[font=\tiny,anchor=north west,align=left,text width=2.25cm,inner sep=1pt,fill=white] at (3.3,-2.02) {1.\ Man arrested after\\\phantom{1.\ }fatal stabbing};
+  % Labels on the right.
+  \node[rlab] (g) at (6.15,1.75) {paragraphs just read:\\they count most};
+  \draw[lead] (g.west) -- (5.55,1.75);
+  \node[rlab] (h) at (6.15,-0.29) {the slot, $d = 0$};
+  \draw[lead] (h.west) -- (5.44,-0.29);
+  \node[rlab] (i) at (6.15,-2.2) {widget, not main:\\no weight for relevance,\\but it blocks a brand-safe ad};
+  \draw[lead] (i.west) -- (5.6,-2.2);
+\end{tikzpicture}
+\caption{Three boundaries around one slot. Left: the whole page, drawn to scale
+  in viewport heights, with offsets $d$ negative above the slot. The page is
+  the story, which leaves out navigation and comments (dotted). The local
+  window (dashed) holds the blocks the page module reports. The co-visible
+  window (solid) holds what can be on screen with the ad, widgets included.
+  Right: the viewport enlarged, as the phone shows it. The widget under the ad
+  has no say in what the slot is about, and the final say on whether the slot
+  is safe.}
+\label{fig:boundary-phone}
+\end{figure}
+
+\subsection{Three scales, two rules}\label{sec:boundary-scales}
+
+The \emph{page} is the story that contains the slot. It says why the reader came
+and what frame of mind they are in. Most of the time the story is the URL, but
+live blogs, infinite scroll and multi-story pages put several stories on one
+URL. The extractor records the innermost \code{<article>} of every block, and a
+story with at least 400 characters of main text gets its own labels. A slot
+inside that story takes them as its page.
+
+The \emph{local window} is the main-content blocks around the slot, weighted
+down with distance. It says what the reader has just read. We weight content
+above the slot more than content below it, because the reader has scrolled
+past what is above and has not yet seen what is below, and content can only
+prime what the reader has seen. This asymmetry is a hypothesis, not a
+measurement, and \cref{sec:boundary-status} says how we plan to test it.
+
+The \emph{co-visible window} is everything on screen with the ad, including
+comments, sidebars and ``most read'' lists. It is what a screenshot of the ad
+would show. Boilerplate removal is right for topic and wrong for safety. A
+widget headline about a stabbing is noise when we decide what the article is
+about, and a real risk for the brand placed next to it. So the extractor keeps
+such blocks, with the flag \code{main = false}. They never count for relevance
+and always count for suitability.
+
+Two rules follow. Relevance blends the page with the local window. Suitability
+takes the worst case over everything co-visible, so a sensitive block is never diluted
+by the benign text around it.
+
+The format sets the mix. We map ad formats onto five classes by where the ad
+sits against the content, not by product name (\cref{tab:boundary-formats}).
+A full-screen unit has no anchor in the text, so the page dominates. A
+scroll-through unit opens inside the article, so the paragraphs just read
+dominate. In-article units take a middle weight, and sticky and banner units
+borrow it for now. A banner's neighbours are mostly widgets, which count only
+for suitability, so we expect its page weight to settle near 0.8 once fitted.
+
+\begin{table}[t]
+\centering
+\caption{Format classes and their geometry (\code{Slot.geometry} in
+  \code{src/lib/slot.ml}). $w_f$ is the page's weight against the local
+  window; $r^{\uparrow}_f$ and $r^{\downarrow}_f$ are the kernel's reach above
+  and below the slot, in viewports. All values are priors, not fits.}
+\label{tab:boundary-formats}
+\small
+\begin{tabularx}{\linewidth}{@{}l >{\raggedright\arraybackslash}X >{\raggedright\arraybackslash}X c c c@{}}
+\toprule
+Class & Examples & Position against the content & $w_f$ & $r^{\uparrow}_f$ & $r^{\downarrow}_f$\\
+\midrule
+\code{fullscreen}     & interstitials, takeovers & covers the page; no anchor in the text & 0.9 & 1 & 0.5\\
+\code{scroll-through} & interscrollers, scroll reveals & opens inside the article as the reader scrolls & 0.4 & 1 & 0.5\\
+\code{in-article}     & MPUs, in-read video, native & between paragraphs & 0.6 & 1 & 0.5\\
+\code{sticky}         & anchors, overscrollers & on screen while the text scrolls under it & 0.6 & 1 & 0.5\\
+\code{banner}         & leaderboards, skyscrapers & beside widgets, outside the article & 0.6 & 1 & 0.5\\
+\bottomrule
+\end{tabularx}
+\par\smallskip
+\raggedright\footnotesize Every class shares the co-visible window $|d| \le 1$.
+\code{sticky} and \code{banner} reuse the \code{in-article} prior until they
+are fitted.
+\end{table}
+
+We keep these weights as parameters because the evidence on congruence is
+mixed. Congruent magazine ads were better remembered in one study
+\citep{moorman2002effects}, while incongruent placements were sometimes
+processed more in another \citep{dahlen2008could}. Contextual match and
+obtrusive formats each lifted purchase intent, but not together
+\citep{goldfarb2011online}. That last result bears directly on interscrollers
+and interstitials.
+
+\subsection{The slot's context}\label{sec:boundary-model}
+
+Offsets are measured in viewport heights from the slot, because a viewport is
+what a reader sees at once on any device. Let $d_b$ be the offset of block $b$:
+negative above the slot (already read), positive below (not yet seen). A
+format $f$ has the geometry $(w_f, r^{\uparrow}_f, r^{\downarrow}_f)$ of
+\cref{tab:boundary-formats}, and its kernel is
+\begin{equation}\label{eq:boundary-kernel}
+k_f(d) =
+\begin{cases}
+  \exp\bigl(-|d| / r^{\uparrow}_f\bigr) & d < 0,\\
+  \exp\bigl(-|d| / r^{\downarrow}_f\bigr) & d \ge 0.
+\end{cases}
+\end{equation}
+With today's reaches a block one viewport above the slot weighs $0.37$ and a
+block one viewport below weighs $0.14$. Let $p(v)$ be the page's (the story's)
+score for node $v$, $s_b(v)$ the score of block $b$ ($0$ when $b$ lacks the
+label), $M$ the main blocks near the slot and $C = \{b : |d_b| \le 1\}$ the
+co-visible ones, main or not. For every $v$ on the page or on a block of $M$,
+the slot's relevance is
+\begin{equation}\label{eq:boundary-relevance}
+\operatorname{rel}_f(v) = w_f\, p(v) + (1 - w_f)\,
+  \frac{\sum_{b \in M} k_f(d_b)\, s_b(v)}{\sum_{b \in M} k_f(d_b)},
+\end{equation}
+and $\operatorname{rel}_f = p$ when $M$ is empty. Let $\mathcal{S}$ be the
+Sensitive Topics branch of the taxonomy: its root and its 11 children. For
+$v \in \mathcal{S}$ the slot's score is the worst case,
+\begin{equation}\label{eq:boundary-suitability}
+\operatorname{suit}(v) = \max\Bigl(p(v),\ \max_{b \in C} s_b(v)\Bigr),
+\end{equation}
+which replaces $\operatorname{rel}_f(v)$. The result has the same shape as a
+page profile, so the matcher of \cref{sec:serving} runs on it unchanged.
+
+\begin{proposition}\label{prop:boundary-monotone}
+Adding a block to the slot's surroundings never lowers $\operatorname{suit}(v)$
+for any $v \in \mathcal{S}$. Adding a main block can lower
+$\operatorname{rel}_f(v)$.
+\end{proposition}
+\begin{proof}
+A maximum over a larger set is at least the maximum over a smaller one. For
+relevance, a main block $b'$ with $s_{b'}(v) = 0$ adds $k_f(d_{b'}) > 0$ to the
+denominator of \cref{eq:boundary-relevance} and nothing to its numerator.
+\end{proof}
+
+The asymmetry is the point. Benign text near the slot dilutes relevance, as it
+should, but it cannot hide a sensitive block. It also explains how unknown
+blocks are treated at bid time (\cref{sec:boundary-where}): a block the
+profile does not know counts as main content without labels, so it dilutes the
+neighbourhood and never makes the slot safer.
+
+\Cref{tab:boundary-example} shows the effect on the test that pins
+\code{Slot.context}. A weekend food guide has page labels that lean towards
+wine. The slot sits 0.3 viewport below the recipe section. As a scroll-through
+unit, the recipe wins and cookware ranks first. As a full-screen unit, the page
+wins and beer ranks first. A ``most read'' widget with a crime headline,
+0.4 viewport below the slot, blocks both creatives for brand suitability. Move
+that widget 2.5 viewports away, off screen, and the block lifts. The test
+asserts all of these cases.
+
+\begin{table}[t]
+\centering
+\caption{One page, two creatives, four slot contexts (\code{test\_contextual.ml}).
+  The page scores Food \& Drink 0.85, Cooking 0.5 and Alcoholic Beverages 0.85.
+  Main blocks sit at $-0.3$ (Food \& Drink 0.9, Cooking 0.9), $-2.0$ and $+1.5$
+  viewports (Food \& Drink 0.9, Alcoholic Beverages 0.9). Each cell gives the
+  matcher's score and its best topic pair; bold marks the winner.}
+\label{tab:boundary-example}
+\small
+\begin{tabularx}{\linewidth}{@{}>{\raggedright\arraybackslash}p{3.6cm} >{\raggedright\arraybackslash}X >{\raggedright\arraybackslash}X@{}}
+\toprule
+Slot context & cookware (targets Food \& Drink) & beer\\
+\midrule
+\code{scroll-through}, just after the recipe & \textbf{0.341}, Cooking $\sim$ Cooking (0.57) & 0.317, Food \& Drink $\sim$ Alcoholic Beverages (0.53)\\
+\code{fullscreen} & 0.308, Food \& Drink $\sim$ Cooking (0.51) & \textbf{0.423}, Alcoholic Beverages $\sim$ Alcoholic Beverages (0.70)\\
+\code{scroll-through}, crime widget at $+0.4$ & blocked: brand suitability & blocked: brand suitability\\
+\code{scroll-through}, crime widget at $+2.5$ & \textbf{0.341}, as in row 1 & 0.317, as in row 1\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Where the slot is}\label{sec:boundary-where}
+
+Rendering every page in a headless browser costs 10 to 50 times a fetch, so the
+crawler does not render. It finds slots in three cheaper ways.
+
+\emph{From the template.} An ad unit's Global Placement ID (GPID), which
+Prebid's GPT Pre-Auction module sets in \code{imp.ext.gpid}, usually ends with
+the element id of the ad's container \citep{prebid2026global}. The extractor
+records containers whose id holds a word such as \code{ad}, \code{mpu},
+\code{leaderboard} or \code{gpt}, or a local-language equivalent, between
+dashes, underscores or digits: \code{div-gpt-ad-1699} and
+\code{top-leaderboard} match, \code{masthead} and \code{consent-banner} do not.
+Each container is placed by the number of blocks before it. On the 338 pages
+archived on the Pi cluster, 119 carry at least one container, once we fixed
+three faults that had counted stylesheet ids, hexadecimal ids and consent
+banners as slots.
+Some slots are injected by script and never appear in the HTML. For those we
+learn positions per template, a template being the site, its top section and
+the URL depth capped at 4: a container seen on at least 2 pages of a template
+gets its mean position, counted in main blocks. In-article slots usually sit at
+fixed template positions, so this costs one lookup per page.
+
+\emph{At auction time.} When the auction starts, the browser has already laid
+out the page, so the best measurement is free. A Prebid.js real-time data
+module (\code{sdks/prebid}) finds each ad unit's element, from the GPID's div id
+or else the ad unit's code. It collects the text blocks outside the slot with
+at least 20 characters of their own text, keeps those within 3 viewports, and
+writes the 12 nearest into \code{ortb2Imp.ext.data.ctx}, each as a 64-bit
+SimHash of its words and an offset in viewports (\cref{fig:boundary-flow}).
+That is under 350 bytes of JSON per slot, and no page text leaves the page. The
+module's SimHash is the crawler's, byte for byte, pinned by fixtures in five
+languages that the OCaml side writes. The bidder matches each hash to the
+nearest block of the page's served profile within 3 differing bits, and the
+labels computed offline come with it. \Cref{app:slot} gives the wire format
+and the matching rule. Prebid.js adapters built on \code{ortbConverter} copy
+\code{ortb2Imp} into the OpenRTB \code{imp} unchanged. We checked this on one
+such adapter on 2026-11-11. Whether Prebid Server keeps \code{imp.ext.data}
+when it rewrites \code{imp.ext} per bidder is not verified yet.
+
+\emph{From the estimated layout.} When a request carries a GPID but no
+\code{ctx}, the bidder places the slot from the profile alone
+(\code{Profile.SlotOfGPID}). The served profile stores each container's
+estimated position and each labelled block's estimated middle, and the bidder
+takes the 12 blocks nearest the container within 3 viewports, exactly as the
+page module would. The estimate comes from text length on a 390-pixel-wide
+phone with a 700-pixel viewport. It is rough, but on a single-column mobile
+page the order of the blocks is close to their visual order. The lab's page
+view measures the real layout on the archived page and scores slots on it
+instead.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[
+  fstep/.style={box,text width=3.05cm,minimum height=1.45cm,font=\footnotesize},
+  lane/.style={font=\footnotesize\bfseries,text=ink!75,rotate=90,anchor=south}]
+  % Offline row: the crawler.
+  \node[fstep] (html) at (1.75,0) {page HTML, cut into\\blocks, each with\\a \code{main} flag};
+  \node[fstep] (sh) at (5.55,0) {64-bit SimHash of\\each block's words};
+  \node[fstep] (lab) at (9.35,0) {\tier{1} and \tier{2} labels\\per block, and its\\estimated position};
+  \node[store,minimum width=2.5cm,minimum height=1.45cm,font=\footnotesize] (st) at (13.15,0) {serving\\profile};
+  \draw[arrow] (html) -- (sh);
+  \draw[arrow] (sh) -- (lab);
+  \draw[arrow] (lab) -- (st);
+  % Online row: the browser, then the bidder.
+  \node[fstep] (mod) at (1.75,-2.75) {page module: the 12\\nearest blocks within\\3 viewports};
+  \node[fstep,draw=accent,thick] (wire) at (5.55,-2.75) {bid request \code{ctx}:\\hash and offset per\\block, under 350 B in all};
+  \node[fstep] (match) at (9.35,-2.75) {bidder: each hash to\\the profile block\\within 3 bits};
+  \node[fstep] (ctx) at (13.15,-2.75) {slot context,\\then the deal's rule};
+  \draw[arrow] (mod) -- (wire);
+  \draw[arrow] (wire) -- (match);
+  \draw[arrow] (match) -- (ctx);
+  \draw[arrow] (st.south) -- ++(0,-0.45) -| (match.north);
+  \node[note,anchor=west] at ($(st.south)+(0.08,-0.22)$) {lookup};
+  \draw[dashedarrow,{Stealth[length=2mm]}-{Stealth[length=2mm]}] (sh.south) -- (wire.north);
+  \node[note,anchor=east] at (5.4,-1.375) {same hash, byte for byte};
+  \node[note,below=1mm of wire.south] {no page text leaves the page};
+  \node[lane] at (-0.2,0) {crawler};
+  \node[lane] at (-0.2,-2.75) {auction};
+\end{tikzpicture}
+\caption{From the page module to the slot's context. Offline, the crawler labels
+  each block and stores its SimHash in the serving profile. At auction time,
+  the browser sends only hashes and offsets. The bidder joins them to the
+  profile's blocks and computes the slot's context by
+  \cref{eq:boundary-relevance,eq:boundary-suitability} with the format's
+  geometry.}
+\label{fig:boundary-flow}
+\end{figure}
+
+\subsection{Slot odds are priors}\label{sec:boundary-odds}
+
+The lab ranks slots for a creative described in words. Each slot gets two
+numbers. Fit is the chance that the creative suits the slot, given that the
+slot is seen. Reach is the chance that the reader scrolls as far as the slot.
+Their product is the slot's odds:
+\begin{equation}\label{eq:boundary-odds}
+\text{fit} = \sigma\bigl(12\,(\text{score} - 0.25)\bigr),\qquad
+\text{reach} = e^{-y/6},\qquad
+P = \text{fit} \times \text{reach},
+\end{equation}
+where score is the matcher's score on the slot's context (\cref{sec:serving}),
+fit is $0$ when a hard rule blocks the creative, and $y$ is the slot's depth
+in viewports from the top of the page. A slot 4.2 viewports down with a fit of
+0.88 gets a reach of 0.50 and odds of 0.44. Slots go where the page's
+template puts its ad containers. Without any container, a slot is tried after
+each main paragraph, quote, caption, image or embed. A full-screen format gets
+a single page-level slot.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{groupplot}[group style={group size=3 by 1,horizontal sep=1.55cm},
+  scale only axis,width=3.85cm,height=3.0cm,
+  tick label style={font=\scriptsize},label style={font=\footnotesize},
+  title style={font=\footnotesize},axis line style={ink!70},
+  every axis plot/.append style={thick},grid=major,grid style={ink!10}]
+\nextgroupplot[title={fit against matcher score},xlabel={matcher score},
+  ylabel={fit},xmin=0,xmax=1,ymin=0,ymax=1.05,xtick={0,0.25,0.5,0.75,1},
+  xticklabels={0,0.25,0.5,0.75,1}]
+  \addplot[accent,domain=0:1,samples=80] {1/(1+exp(-12*(x-0.25)))};
+  \addplot[only marks,mark=*,mark size=1.8pt,ink,samples at={0.341,0.423}] {1/(1+exp(-12*(x-0.25)))};
+  \node[font=\tiny,anchor=north west,align=left] at (axis cs:0.345,0.72) {cookware,\\scroll-through};
+  \node[font=\tiny,anchor=west] at (axis cs:0.47,0.855) {beer, fullscreen};
+  \draw[ink!50,dashed,thin] (axis cs:0.25,0) -- (axis cs:0.25,0.5) -- (axis cs:0,0.5);
+\nextgroupplot[title={reach against slot depth},xlabel={depth $y$ (viewports)},
+  ylabel={reach},xmin=0,xmax=15,ymin=0,ymax=1.05,xtick={0,3,6,9,12,15}]
+  \addplot[accent,domain=0:15,samples=60] {exp(-x/6)};
+  \addplot[only marks,mark=*,mark size=1.8pt,ink,samples at={4.2}] {exp(-x/6)};
+  \node[font=\tiny,anchor=south west] at (axis cs:4.4,0.52) {$y=4.2$: reach 0.50};
+\nextgroupplot[title={kernel against offset},xlabel={offset $d$ (viewports)},
+  ylabel={$k_f(d)$},xmin=-3,xmax=3,ymin=0,ymax=1.05,xtick={-3,-2,-1,0,1,2,3}]
+  \fill[accent!12] (axis cs:-1,0) rectangle (axis cs:1,1.05);
+  \addplot[accent,domain=-3:0,samples=40] {exp(x)};
+  \addplot[accent,domain=0:3,samples=40,forget plot] {exp(-2*x)};
+  \node[font=\tiny,anchor=south] at (axis cs:0,0.02) {co-visible};
+  \node[font=\tiny,anchor=south] at (axis cs:-2,0.16) {read};
+  \node[font=\tiny,anchor=south] at (axis cs:2,0.06) {unseen};
+\end{groupplot}
+\end{tikzpicture}
+\caption{The priors the lab uses, as plotted functions. Left: fit is a logistic
+  of the matcher's score and crosses 0.5 at a score of 0.25; the dots are the
+  two winners of \cref{tab:boundary-example}. Middle: reach decays with depth;
+  the dot is the slot of the placement API's example. Right: the kernel of
+  \cref{eq:boundary-kernel}, shared by every format today, falls twice as fast
+  below the slot as above it. The shaded band is the co-visible window.}
+\label{fig:boundary-priors}
+\end{figure}
+
+All of \cref{eq:boundary-odds} is hand-set. The logistic's slope and centre,
+the six-viewport scroll decay, the page weights, the reaches and the width of
+the co-visible window are priors chosen to be plausible, and each is marked as
+a shortcut in the code. None has been fitted, because fitting needs engagement
+data per slot, which we do not have yet. Fit should become the engagement
+regression of \cref{sec:serving}, and reach should become measured scroll-depth
+curves per site. Until then $P$ ranks slots within a page. It is not a
+calibrated probability, and we do not report it as one.
+
+\subsection{What is built and what is not}\label{sec:boundary-status}
+
+As of 2026-11-11 the OCaml \code{Slot.context} computes
+\cref{eq:boundary-relevance,eq:boundary-suitability}, and the served profile
+carries up to 64 labelled blocks and the page's ad containers. The Go SDK's
+\code{Profile.AtSlot} reproduces \code{Slot.context} on 2,000 fixture cases, in
+1.8\,\textmu s with 23 allocations for five blocks, and
+\code{Profile.SlotOfGPID} agrees with the OCaml side on 1,000. The page module
+hashes as the crawler does. In the lab, the page view replays the archived
+page with scripts off and draws block scores, slots, the kernel and the
+co-visible window on it.
+
+The rest is planned or unmeasured. No prior of \cref{tab:boundary-formats} or
+\cref{eq:boundary-odds} is fitted, and the \code{sticky} and \code{fullscreen}
+geometry has not been checked against each format's specification. The served
+profile still estimates block positions. The module is not yet on publishers'
+pages, and the bidder integration that would read \code{ctx} is open
+(\cref{sec:serving}). Bid-time geometry also drifts from render time for
+sticky and refreshing slots. We dropped three ideas for now: rendering one
+page per template for desktop layouts, observing after the impression what was
+co-visible, and using the previous page as context for interstitials, which
+would bring in user history and consent obligations.
+
+We plan to settle how far context reaches with data. The engagement model gets
+two topic features per format, page-topic match and local-topic match, and
+their fitted weights say how much nearby content matters. A script fits the
+page feature at site grain on 30 days of delivery logs, because delivery is
+reported per site; we report no result from it here. The local feature needs
+slot geometry in the logs, which only the page module provides. The decisive
+test is an A/B test of page context against slot context, crossed with format
+(\cref{sec:protocol}). It has not run.

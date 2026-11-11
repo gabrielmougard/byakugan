@@ -1,0 +1,147 @@
+; Google's robots.txt matcher (vendor/robotstxt, unmodified) and our C++
+; adapter, for src/lib/robots.ml; libzstd bindings for src/lib/zstd.ml.
+
+(library
+ (name robotstxt_native)
+ (modules)
+ (foreign_stubs
+  (language cxx)
+  (names robots robots_stubs)
+  (flags
+   (:standard -std=c++17 -O2 -Wall -Wextra -Wno-unused-parameter))
+  (include_dirs compat ../vendor/robotstxt ../vendor/robotstxt/compat)
+  (extra_deps
+   (glob_files_rec compat/*.h)
+   (glob_files_rec ../vendor/robotstxt/*.h)))
+ (c_library_flags
+  (:include cxx_link_flags.sexp)))
+
+(copy_files ../vendor/robotstxt/robots.cc)
+
+(rule
+ (enabled_if
+  (= %{ocaml-config:system} macosx))
+ (action
+  (with-stdout-to
+   cxx_link_flags.sexp
+   (echo "(-lc++)"))))
+
+(rule
+ (enabled_if
+  (<> %{ocaml-config:system} macosx))
+ (action
+  (with-stdout-to
+   cxx_link_flags.sexp
+   (echo "(-lstdc++)"))))
+
+(library
+ (name zstd_native)
+ (modules)
+ (foreign_stubs
+  (language c)
+  (names zstd_stubs)
+  (flags
+   (:standard -O2 -Wall (:include zstd_cflags.sexp))))
+ (c_library_flags
+  (:include zstd_libs.sexp)))
+
+(rule
+ (action
+  (with-stdout-to
+   zstd_cflags.sexp
+   (system "printf '(%s)' \"$(pkg-config --cflags libzstd)\""))))
+
+(rule
+ (action
+  (with-stdout-to
+   zstd_libs.sexp
+   (system "printf '(%s)' \"$(pkg-config --libs libzstd)\""))))
+
+; lexbor's HTML5 parser (vendor/lexbor, unmodified subset) and our adapter,
+; for src/lib/html.ml.
+
+(library
+ (name lexbor_native)
+ (modules)
+ (foreign_stubs
+  (language c)
+  (names lexbor_stubs)
+  (flags
+   (:standard -O2 -Wall -DLEXBOR_STATIC))
+  (include_dirs ../vendor/lexbor/source))
+ (foreign_archives lexbor))
+
+(rule
+ (targets liblexbor.a dlllexbor.so)
+ (deps
+  build-lexbor.sh
+  (source_tree ../vendor/lexbor/source))
+ (action
+  (system "sh build-lexbor.sh ../vendor/lexbor/source %{cc}")))
+
+; ggml (vendor/ggml, unmodified subset), built with its own CMake, and the
+; runtimes on top of it: Model2Vec for src/lib/model2vec.ml, SigLIP 2 for
+; src/lib/siglip.ml, whose images are decoded by the system's libjpeg-turbo,
+; libpng and libwebp.
+
+(library
+ (name m2v_native)
+ (modules)
+ (foreign_stubs
+  (language c)
+  (names m2v_text m2v_model m2v_stubs sig sig_stubs)
+  (flags
+   (:standard -O2 -Wall (:include img_cflags.sexp)))
+  (include_dirs ../vendor/ggml/include)
+  (extra_deps m2v.h m2v_internal.h m2v_tables.h sig.h))
+ (foreign_archives ggml)
+ (c_library_flags
+  (:include cxx_link_flags.sexp)
+  (:include img_libs.sexp)
+  -lm))
+
+(rule
+ (action
+  (with-stdout-to
+   img_cflags.sexp
+   (system
+    "printf '(%s)' \"$(pkg-config --cflags libturbojpeg libpng libwebp)\""))))
+
+(rule
+ (action
+  (with-stdout-to
+   img_libs.sexp
+   (system
+    "printf '(%s)' \"$(pkg-config --libs libturbojpeg libpng libwebp)\""))))
+
+(rule
+ (targets libggml.a)
+ (deps
+  build-ggml.sh
+  (source_tree ../vendor/ggml))
+ (action
+  (system "sh build-ggml.sh ../vendor/ggml")))
+
+; FastWARC (vendor/rust, cargo vendor, unmodified) behind a small C ABI
+; (warc_ffi/) and our stubs, for src/lib/warc.ml.
+
+(library
+ (name warc_native)
+ (modules)
+ (foreign_stubs
+  (language c)
+  (names warc_stubs)
+  (flags
+   (:standard -O2 -Wall)))
+ (foreign_archives warc_ffi)
+ (c_library_flags
+  (:include warc_libs.sexp)))
+
+(rule
+ (targets libwarc_ffi.a dllwarc_ffi.so warc_libs.sexp)
+ (deps
+  build-warc.sh
+  (source_tree warc_ffi)
+  (source_tree ../vendor/rust))
+ (action
+  (system "sh build-warc.sh warc_ffi")))

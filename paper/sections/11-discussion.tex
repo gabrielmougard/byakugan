@@ -1,0 +1,60 @@
+% 11-discussion
+\section{Discussion, limitations and ethics}\label{sec:discussion}
+
+We set six requirements in \cref{sec:overview}. \Cref{tab:discussion-reqs} says, for each, what the system does about it and what is still unshown. The pattern is plain. What can be checked in a test or a benchmark holds. What needs a reader, an impression or a week of traffic has been designed but not yet measured.
+
+\begin{table}[t]
+\centering\small
+\caption{The requirements of \cref{sec:overview}, what meets them and what is open.}
+\label{tab:discussion-reqs}
+\begin{tabularx}{\linewidth}{@{}l>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X@{}}
+\toprule
+Requirement & What meets it & Open \\
+\midrule
+\ref{req:latency} latency & one key-value read per backoff level; decode 83\,ns and a rule check 9\,ns, both without allocation; slot context 1.8\,\textmu s (\cref{tab:serving-sdk}) & the read inside a production bidder, under its load \\
+\ref{req:cost} cost & the value budget and per-language thresholds: \tier{4} on 29.8\% of pages, about \$42 per million (\cref{tab:eval-cost}) & thresholds refitted on a fresh crawl; a batch API \\
+\ref{req:fresh} freshness & a crawl request on every miss, value-ordered frontier, SimHash refresh (\cref{sec:crawl}) & time to first profile for busy new pages, in production \\
+\ref{req:explain} explanations & every decision names its deciding label; full traces on demand & an audit store keyed by URL, content hash and version \\
+\ref{req:sensitive} suitability & worst case over everything co-visible (\cref{eq:boundary-suitability}); never blended & incidents per impression, from the experiment \\
+\ref{req:nouser} no user data & by construction: inputs are the page and the slot & none \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{What the evaluation does not show}\label{sec:discussion-limits}
+
+\paragraph{The gold labels come from a model.} This is the largest gap, and we repeat it from \cref{sec:eval-golden}. An LLM judged the golden pages, and \tier{4} is an LLM. Part of what \cref{tab:eval-quality} measures is agreement between two models, which flatters \tier{4} and whatever was calibrated against it. The remedy is cheap and not yet done: judge 50 pages by hand in the lab and measure agreement with the gold before trusting any finer calibration to it. Until then, differences of a few hundredths of \hF{} between settings are within what a different judge could move.
+
+\paragraph{The sample is small and follows the exchange.} 383 pages from 25 publishers carry the whole quality evaluation. They follow the supply of one exchange: four main languages, many homepages, no Spanish at all and only 27 German pages. Spanish and German share a fallback calibration and threshold pair. A different exchange, or the same one a year later, would weight the languages and page types differently, and the tunings would move with them.
+
+\paragraph{The tunings may be overfitted.} \Cref{sec:cascade-tunings} fits each language's thresholds by trying 140 choices on 31 to 164 pages, and evaluates on the same pages. With so few pages per language, the trade we measured for per-language thresholds, \$28 per million pages saved for 0.043 of \hF{}, may not hold on new pages. The fit also used \tier{4} outcomes from an older crawl, on older shortlists. A recrawl with the audit trace on, then a refit with pages held out, would answer both concerns.
+
+\paragraph{The shortlist caps \tier{4}.} \tier{4} chooses among the 12 labels that \tier{0}--\tier{3} rank highest. If $G$ is a page's gold set and $S_{12}$ the shortlist, every label \tier{4} returns lies in $S_{12}$, so its flat recall on that page is at most
+\begin{equation}\label{eq:discussion-cap}
+  R_{\tier{4}} \le \frac{|G \cap S_{12}|}{|G|}.
+\end{equation}
+Pooled over pages, the bound is the share of the 1,173 gold labels found in the shortlists, the recall@12 of \cref{fig:cascade-recall}: 62.7\%, or 64.8\% on the shortlists the model actually saw. Hierarchical recall is a little kinder, since an ancestor in the shortlist earns partial credit. The stored \preset{deep} profiles reach \hR{} 0.639, close to the bound, which suggests that most of what \tier{4} misses was never offered to it. A longer shortlist is not the fix. Recall at 96 labels is 93.1\%, with eight times as many labels in every prompt. The ranking of the lower tiers is what has to improve. Distilling \tier{4}'s labels back into \tier{1}'s term weights and into a learned \tier{2} head is the planned route.
+
+\paragraph{Bids are not outcomes.} \Cref{sec:eval-reach} shows that buyers bid about twice as often on pages that match a deal's context. That is evidence that the profiles describe something buyers care about. It is not evidence that ads on those pages work better, and it is observational: a deal's matching pages may also be its better sites. The sample was one day, with filter reasons logged for a sample of requests and \tier{4} off. The causal question goes to the experiment of \cref{sec:protocol}, which has not run.
+
+\paragraph{The slot priors are hand-set.} Every number in \cref{eq:boundary-odds} and every page weight and reach of \cref{tab:boundary-formats} is a plausible guess marked as such in the code (\cref{sec:boundary-odds}). The slot machinery is tested for agreement between its two implementations, not for being right about readers. The experiment's logs are what should replace the guesses.
+
+\paragraph{Some publishers cannot be crawled.} Of the 469 pages drawn, 86 answered with HTTP 403 or were disallowed by robots.txt, and four of the 25 publishers gave us nothing. Some of these refuse any crawler they do not know. A crawler with a public information page, published address ranges and signed requests would be known; until it is, part of the supply has no profile and falls back to the section, the site or nothing.
+
+\paragraph{The crawler reads markup, not pixels.} We do not render pages. Content that only scripts insert, ad containers injected late and the real heights of blocks are estimated or missed. The page module measures what the browser lays out, but only where a publisher runs it. Homepages change by the hour, carry many impressions and are the hardest pages here: what a slot on a homepage sits next to is a teaser, and a profile of the whole page says little about it.
+
+\paragraph{No external comparison.} We have not compared profiles with a commercial verification service on the same URLs. Such a comparison would not give ground truth either, but it would say whether our Sensitive Topics verdicts are in line with what buyers already accept.
+
+\subsection{What carries over}\label{sec:discussion-general}
+
+Two parts of the design do not depend on advertising. The cascade with a value budget applies wherever a large, skewed stream of documents must be labelled against a fixed taxonomy and the expensive judge can be afforded on only a fraction: spend follows the value of the item, cheap tiers settle what they can, and every decision keeps its deciding evidence. The slot model applies wherever a decision depends on part of a document rather than all of it. It separates the question of relevance, a weighted blend, from the question of suitability, a worst case, and the separation is what keeps one sensitive headline from being averaged away. The specific numbers, from the 704 nodes to the kernel's reach, belong to this exchange and this taxonomy. The structure does not.
+
+\subsection{Ethics}\label{sec:discussion-ethics}
+
+\paragraph{Users.} No cookie, user identifier, device identifier or browsing history enters a profile or a decision, and the experiment assigns by request, not by user. We dropped one idea for this reason: using the previous page as context for an interstitial would bring in a reader's history and the consent obligations that come with it (\cref{sec:boundary-status}). Contextual advertising is not free of privacy questions, since a page can reveal a reader's interests, but the system adds nothing about the reader to what the bid request already carries.
+
+\paragraph{Publishers.} The crawler honours robots.txt under RFC~9309, treats an unreachable file as a refusal, waits at least a second between requests to a host and revalidates with conditional requests where it can. Before any page text goes to a generative model, the AI-use gate of \cref{sec:crawl-gate} reads the publisher's stated preferences and licence, and a refusal anywhere wins. On the golden sample 41 of 383 stored pages were denied, and they were classified without \tier{4}. A licence we cannot negotiate yet counts as a refusal. We think the default should lean this way while the conventions settle: classifying a page to sell ads on it benefits the publisher, but sending its text to a third-party model is a use the publisher should be able to refuse.
+
+\paragraph{The pages that are labelled.} Suitability labels decide where money goes. A page labelled with a Sensitive Topic loses the deals that block it, and news about crime, war or disease is exactly the content such labels catch. Over-blocking takes revenue from journalism that is often the most expensive to produce. Two choices in \sys{} limit this. Deals block Sensitive Topics, not keywords, so a page is blocked for what it is about rather than for a word in it. And every block names its deciding label and evidence, so a publisher or a trader can see why a page was refused and dispute it. Whether the labels are calibrated well enough on hard news is a question the human check above should answer specifically.
+
+\paragraph{The models.} We used an LLM both to classify and to judge, and we report the cost of both. Page text was sent to hosted models through an API; no user data was. The golden set's URLs and judgements come from an exchange's traffic and are not published, so these results cannot be audited page by page from outside. The code (\repo) holds a made-up pair of files in the same format, so anyone can run the same evaluation on a sample of their own. The pages' text is not ours to publish either.

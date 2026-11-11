@@ -1,0 +1,48 @@
+Third-party data in src/data
+============================
+
+Files here that Byakugan did not write, where they come from, their licence,
+and what we changed. The model files are not in git: fetch-data.sh downloads
+them from this repository's GitHub release (the GGUF files, and with
+--from-source the unmodified originals), and the same notices apply there.
+
+
+IAB Tech Lab Content Taxonomy 3.1
+---------------------------------
+File:     content_taxonomy_3.1.tsv (in git)
+Source:   https://github.com/InteractiveAdvertisingBureau/Taxonomies
+          "Content Taxonomies/Content Taxonomy 3.1.tsv"
+Author:   IAB Technology Laboratory, Inc.
+Licence:  Creative Commons Attribution 3.0, as stated in the README of that
+          repository: https://creativecommons.org/licenses/by/3.0/
+Changes:  none; the file is byte for byte the published one.
+
+
+Model2Vec potion-base-32M and potion-multilingual-128M
+------------------------------------------------------
+Files:    potion-base-32M.gguf, potion-multilingual-128M.gguf (release assets);
+          the originals' model.safetensors, tokenizer.json and config.json,
+          unmodified, prefixed with the model's name
+Source:   https://huggingface.co/minishlab/potion-base-32M
+          revision 1e5a03f8eeb2c98b928fbbd846f22f816360919f
+          https://huggingface.co/minishlab/potion-multilingual-128M
+          revision 73908c3438cf03b6a01bcb9611d62b23d0726f08
+Author:   MinishLab (Thomas van Dongen, Stephan Tulkens)
+Licence:  MIT, licenses/MIT-model2vec.txt
+Changes:  converted by src/convert-models.sh (m2vgguf): the embedding table is
+          quantised to Q8_0 and stored with the tokenizer in one GGUF file.
+
+
+SigLIP 2 base, patch 16, NaFlex
+-------------------------------
+File:     siglip2-base-patch16-naflex.gguf (release asset); the original
+          model.safetensors, unmodified, as
+          siglip2-base-patch16-naflex.model.safetensors
+Source:   https://huggingface.co/google/siglip2-base-patch16-naflex
+          revision b53b807d3a2d5e2b3911292f2d69e5341cdc064c
+Author:   Google
+Licence:  Apache License 2.0, licenses/Apache-2.0.txt
+Changes:  converted by src/convert-models.sh (siggguf): the vision tower only,
+          its weight matrices quantised to Q8_0, in one GGUF file. The text
+          tower is not shipped; siglip2_prototypes.gguf holds the text
+          embeddings Byakugan computed with it for every taxonomy node.
