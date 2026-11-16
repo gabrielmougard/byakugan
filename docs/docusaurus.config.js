@@ -7,8 +7,8 @@
 const config = {
   title: 'Byakugan',
   tagline: 'Byakugan: contextual classification and ad placement, in OCaml',
-  url: 'http://localhost',
-  baseUrl: '/',
+  url: 'https://gabrielmougard.github.io',
+  baseUrl: '/byakugan/',
   favicon: 'img/byakugan-mark.svg',
   onBrokenLinks: 'throw',
   markdown: {

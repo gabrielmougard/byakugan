@@ -109,7 +109,7 @@ Drop `--llm` to run without T4. `--site` is optional: crawl orders can also come
 
 ```bash
 npm --prefix docs install --include=optional
-npm --prefix docs start          # http://localhost:3000, live reload
+npm --prefix docs start          # http://localhost:3000/byakugan/, live reload
 npm --prefix docs run build      # static site in docs/build, fails on broken links
 ```
 
